@@ -61,6 +61,19 @@ import TypeWhisperPluginSDK
             _ = try await engine.transcribe(audio: AudioData(samples: [0], wavData: Data(), duration: 0), language: nil, translate: false, prompt: nil)
             fatalError("Missing key accepted")
         } catch { print("PASS: bundle rejects unconfigured transcription") }
-        print("All tests passed. No live API calls were made.")
+        guard let llm = engine as? any LLMProviderPlugin else { fatalError("LLM provider conformance missing") }
+        expect(llm.providerName == "Antigravity OAuth（非官方）" && !llm.isAvailable, "Bundle exposes separately configured LLM provider")
+        let host = TestHost()
+        try host.storeSecret(key: "api-key", value: "fake-mimo-key")
+        let auth = AntigravityCredentials(accessToken: "fake", refreshToken: "fake", expiresAt: Date().addingTimeInterval(3600), projectID: "fake-project")
+        try host.storeSecret(key: AntigravityCore.secretKey, value: auth.encoded())
+        engine.activate(host: host)
+        expect(engine.isConfigured && llm.isAvailable, "Both provider configurations restored through host SDK")
+        expect(llm.supportedModels.contains(where: { $0.id == AntigravityCore.defaultModel }), "LLM model catalog visible to workflows")
+        engine.deactivate()
+        expect(!engine.isConfigured && !llm.isAvailable, "Deactivation clears in-memory configuration")
+        try await antigravityTests()
+        try await loopbackTests()
+        print("All tests passed. Only offline mocks and loopback HTTP; no real credentials, browser login, or live API calls.")
     }
 }

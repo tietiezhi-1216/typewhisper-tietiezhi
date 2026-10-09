@@ -22,13 +22,14 @@ swiftc -emit-library -O -swift-version 6 -module-name MiMoASRPlugin \
   -Xlinker -rpath -Xlinker @executable_path/../Frameworks \
   Sources/*.swift -o "$BUNDLE/Contents/MacOS/MiMoASRPlugin"
 cp manifest.json "$BUNDLE/Contents/Resources/"
+cp THIRD_PARTY_NOTICES.md "$BUNDLE/Contents/Resources/"
 python3 - "$BUNDLE/Contents/Info.plist" <<'PY'
 import plistlib,sys
 with open(sys.argv[1], 'wb') as f:
     plistlib.dump(dict(CFBundleIdentifier="com.tietiezhi.typewhisper.mimo-asr",
                       CFBundleName="MiMo ASR",CFBundleExecutable="MiMoASRPlugin",
-                      CFBundlePackageType="BNDL",CFBundleVersion="1",
-                      CFBundleShortVersionString="0.1.0",NSPrincipalClass="MiMoASRPlugin",
+                      CFBundlePackageType="BNDL",CFBundleVersion="2",
+                      CFBundleShortVersionString="0.2.0",NSPrincipalClass="MiMoASRPlugin",
                       LSMinimumSystemVersion="14.0"),f)
 PY
 codesign --force --sign - "$BUNDLE"

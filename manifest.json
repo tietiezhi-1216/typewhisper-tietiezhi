@@ -1,16 +1,17 @@
 {
   "id": "com.tietiezhi.typewhisper.mimo-asr",
-  "name": "MiMo ASR",
-  "version": "0.1.0",
+  "name": "MiMo ASR + Antigravity",
+  "version": "0.2.0",
   "minHostVersion": "1.7.1",
   "sdkCompatibilityVersion": "v1",
   "minOSVersion": "14.0",
   "author": "tietiezhi",
-  "description": "Native Xiaomi MiMo cloud speech recognition. API key required. Supports Chinese and English.",
+  "description": "MiMo speech recognition and unofficial Antigravity OAuth text polishing. Google account restrictions may apply.",
   "descriptions": {
-    "zh-CN": "小米 MiMo 云端语音识别。支持中文、英文，需要 API Key。"
+    "zh-CN": "小米 MiMo 语音识别与非官方 Antigravity OAuth 润色。存在 Google 账号限制风险。"
   },
   "category": "transcription",
+  "categories": ["transcription", "llm"],
   "hosting": "cloud",
   "iconSystemName": "waveform",
   "principalClass": "MiMoASRPlugin",
