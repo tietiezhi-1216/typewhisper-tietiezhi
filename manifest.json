@@ -1,0 +1,18 @@
+{
+  "id": "com.tietiezhi.typewhisper.mimo-asr",
+  "name": "MiMo ASR",
+  "version": "0.1.0",
+  "minHostVersion": "1.7.1",
+  "sdkCompatibilityVersion": "v1",
+  "minOSVersion": "14.0",
+  "author": "tietiezhi",
+  "description": "Native Xiaomi MiMo cloud speech recognition. API key required. Supports Chinese and English.",
+  "descriptions": {
+    "zh-CN": "小米 MiMo 云端语音识别。支持中文、英文，需要 API Key。"
+  },
+  "category": "transcription",
+  "hosting": "cloud",
+  "iconSystemName": "waveform",
+  "principalClass": "MiMoASRPlugin",
+  "requiresAPIKey": true
+}
