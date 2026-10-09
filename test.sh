@@ -5,6 +5,6 @@ APP="${TYPEWHISPER_APP:-/Applications/TypeWhisper.app}"
 swiftc -parse-as-library -swift-version 6 -target arm64-apple-macos14.0 \
   -I build/sdk -L build/link -lTypeWhisperPluginSDK \
   -Xlinker -rpath -Xlinker "$APP/Contents/Frameworks" \
-  Sources/MiMoCore.swift Sources/AntigravityCore.swift Sources/AntigravityService.swift \
+  Sources/MiMoCore.swift Sources/AntigravityCore.swift Sources/AntigravityService.swift Sources/AntigravityDiagnostics.swift \
   Sources/OAuthLoopback.swift Tests/*.swift -o build/tests
 ./build/tests

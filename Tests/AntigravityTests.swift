@@ -63,6 +63,20 @@ extension Tests {
             _ = try AntigravityCore.generatedText(["candidates": [["finishReason": "MAX_TOKENS", "content": ["parts": [["text": "partial"]]]]]])
         }
 
+        let badResponse = Data(#"{"error":{"status":"INVALID_ARGUMENT","message":"fake-access-token private text","details":[{"fieldViolations":[{"field":"metadata.plugin_type","description":"fake-refresh-token"}]}]}}"#.utf8)
+        let diagnostic = AntigravityHTTPError.safeDiagnostic(badResponse)
+        expect(diagnostic.contains("INVALID_ARGUMENT") && diagnostic.contains("metadata.plugin_type"), "Safe diagnostics preserve machine code and field name")
+        expect(!diagnostic.contains("fake-") && !diagnostic.contains("private text"), "Diagnostics never expose arbitrary Google error messages")
+        let exchangeMock = MockTransport([(400, #"{"error":"invalid_grant","error_description":"fake-secret"}"#)])
+        let exchangeService = AntigravityService(transport: { try await exchangeMock.send($0) })
+        do {
+            _ = try await exchangeService.completeAuthorization(code: "fake", verifier: "fake", host: TestHost(), projectOverride: "")
+            fatalError("Bad exchange accepted")
+        } catch let error as AntigravityHTTPError {
+            expect(error.stage == .exchange && error.status == 400 && error.diagnostic.contains("invalid_grant"), "Token-exchange 400 is distinguished from model errors")
+            expect(!error.localizedDescription.contains("fake-secret"), "Token-exchange secrets are not displayed")
+        }
+
         let host = TestHost()
         try host.storeSecret(key: "api-key", value: "fake-mimo-key")
         let loginMock = MockTransport([
@@ -78,6 +92,8 @@ extension Tests {
         let loginRequests = await loginMock.allRequests()
         expect(loginRequests[0].url?.host == "oauth2.googleapis.com", "Exchange only at Google token endpoint")
         expect(loginRequests[1].url?.path == "/v1internal:loadCodeAssist", "Read account without automatic onboarding")
+        let projectBody = try JSONSerialization.jsonObject(with: loginRequests[1].httpBody!) as! [String: Any]
+        expect((projectBody["metadata"] as? [String: String])?["pluginType"] == "GEMINI", "Project request uses GEMINI plugin enum, not ANTIGRAVITY")
 
         var expired = credentials
         expired.expiresAt = Date(timeIntervalSince1970: 0)
@@ -106,7 +122,9 @@ extension Tests {
         do {
             _ = try await blocked.generate(host: host, model: "gemini-3-flash", system: "polish", text: "one")
             fatalError("403 accepted")
-        } catch AntigravityError.http(403) { print("PASS: explicit access-denied error") }
+        } catch let error as AntigravityHTTPError {
+            expect(error.status == 403 && error.stage == .generate, "Access-denied error identifies generation stage")
+        }
         let blockedCount = await blockedMock.count()
         expect(blockedCount == 1, "No account or endpoint rotation on 403")
         try await refresher.logout(host: host)

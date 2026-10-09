@@ -1,7 +1,7 @@
 {
   "id": "com.tietiezhi.typewhisper.mimo-asr",
   "name": "MiMo ASR + Antigravity",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "minHostVersion": "1.7.1",
   "sdkCompatibilityVersion": "v1",
   "minOSVersion": "14.0",

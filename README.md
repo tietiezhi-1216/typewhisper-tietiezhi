@@ -1,6 +1,6 @@
 # TypeWhisper MiMo ASR + Antigravity OAuth
 
-0.2.0：TypeWhisper 1.7.1 / Apple Silicon 原生 Swift + SwiftUI 插件。
+0.2.1：TypeWhisper 1.7.1 / Apple Silicon 原生 Swift + SwiftUI 插件。
 MiMo 用于语音识别，Antigravity 用于文本润色。不需要常驻代理服务。
 
 ## 重要风险
@@ -49,7 +49,7 @@ Antigravity OAuth 访问其服务，可能暂停或终止 Antigravity / Gemini C
 - 端口占用：关闭其他使用 36742 端口的 OAuth 登录流程再重试；监听器只绑定 127.0.0.1。
 - OAuth 被 Google 拒绝：可能是第三方客户端政策，不提供绕过方法。
 - 缺少项目：先在官方应用完成初始化，或填写自己有权限的项目 ID。不会自动创建项目。
-- 400：可能是 OAuth 客户端、请求结构或模型 ID 不再可用。
+- 400：显示具体失败步骤（换 Token / 查项目 / 调模型）及白名单错误码、字段名，不显示原始响应或敏感数据。0.2.1 修正 loadCodeAssist 的 pluginType 枚举为 GEMINI。
 - 403：权限、账号资格或服务限制，立即报告，不自动换账号或端点。
 - 429：额度/频率限制，不自动重试。
 - 登录成功不等于模型可调用，必须点击“测试润色”验证。
@@ -94,7 +94,7 @@ ASR 编码、OAuth 格式/CSRF/PKCE、模拟登录/刷新/退出/403、并发刷
 
 当前未用用户账号验证 Google 授权或模型服务；需要用户授权后测试。
 
-产物：build/MiMoASR.bundle、build/MiMoASR-0.2.0.zip。
+产物：build/MiMoASR.bundle、build/MiMoASR-0.2.1.zip。
 最低 macOS 14、仅 arm64、ad-hoc 本机签名，未 Apple 公证。
 升级 TypeWhisper 后应重新检查 SDK 兼容性。
 

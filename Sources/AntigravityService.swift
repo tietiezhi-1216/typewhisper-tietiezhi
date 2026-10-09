@@ -17,11 +17,13 @@ actor AntigravityService {
             self.transport = { request in try await session.data(for: request) }
         }
     }
-    private func json(_ request: URLRequest) async throws -> [String: Any] {
+    private func json(_ request: URLRequest, stage: AntigravityRequestStage) async throws -> [String: Any] {
         let (data, response) = try await transport(request)
         try Task.checkCancellation()
         guard let http = response as? HTTPURLResponse else { throw AntigravityError.invalidResponse }
-        guard (200..<300).contains(http.statusCode) else { throw AntigravityError.http(http.statusCode) }
+        guard (200..<300).contains(http.statusCode) else {
+            throw AntigravityHTTPError(status: http.statusCode, stage: stage, diagnostic: AntigravityHTTPError.safeDiagnostic(data))
+        }
         guard let value = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw AntigravityError.invalidResponse }
         return value
     }
@@ -53,7 +55,7 @@ actor AntigravityService {
     // Split out the post-callback operation for offline transport testing.
     func completeAuthorization(code: String, verifier: String, host: any HostServices, projectOverride: String) async throws -> AntigravityCredentials {
         let expected = epoch
-        let tokens = try await json(AntigravityCore.tokenRequest(code: code, verifier: verifier))
+        let tokens = try await json(AntigravityCore.tokenRequest(code: code, verifier: verifier), stage: .exchange)
         guard let access = tokens["access_token"] as? String, !access.isEmpty,
               let refresh = tokens["refresh_token"] as? String, !refresh.isEmpty,
               let seconds = tokens["expires_in"] as? Double, seconds.isFinite, seconds > 0 else { throw AntigravityError.invalidResponse }
@@ -62,19 +64,19 @@ actor AntigravityService {
         var credentials = AntigravityCredentials(accessToken: access, refreshToken: refresh, expiresAt: Date().addingTimeInterval(seconds), projectID: project)
         var userInfo = URLRequest(url: URL(string: "https://www.googleapis.com/oauth2/v1/userinfo?alt=json")!, timeoutInterval: 15)
         userInfo.setValue("Bearer " + access, forHTTPHeaderField: "Authorization")
-        if let object = try? await json(userInfo) { credentials.email = object["email"] as? String }
+        if let object = try? await json(userInfo, stage: .profile) { credentials.email = object["email"] as? String }
         try checkEpoch(expected)
         try host.storeSecret(key: AntigravityCore.secretKey, value: credentials.encoded())
         return credentials
     }
     private func discoverProject(access: String, override: String) async throws -> String {
         let override = override.trimmingCharacters(in: .whitespacesAndNewlines)
-        var metadata: [String: String] = ["ideType": "IDE_UNSPECIFIED", "platform": "PLATFORM_UNSPECIFIED", "pluginType": "ANTIGRAVITY"]
+        var metadata: [String: String] = ["ideType": "IDE_UNSPECIFIED", "platform": "PLATFORM_UNSPECIFIED", "pluginType": "GEMINI"]
         var body: [String: Any] = [:]
         if !override.isEmpty { metadata["duetProject"] = override; body["cloudaicompanionProject"] = override }
         body["metadata"] = metadata
         let request = try AntigravityCore.apiRequest(action: "loadCodeAssist", token: access, body: body)
-        let response = try await json(request)
+        let response = try await json(request, stage: .project)
         if let project = AntigravityCore.project(from: response) { return project }
         if !override.isEmpty { return override }
         // Do not provision a project, select a paid tier, or rotate endpoints.
@@ -86,7 +88,7 @@ actor AntigravityService {
         if let refreshTask { return try await refreshTask.value }
         let expected = epoch
         let task = Task { () throws -> AntigravityCredentials in
-            let response = try await self.json(AntigravityCore.refreshRequest(stored.refreshToken))
+            let response = try await self.json(AntigravityCore.refreshRequest(stored.refreshToken), stage: .refresh)
             guard let access = response["access_token"] as? String, !access.isEmpty,
                   let seconds = response["expires_in"] as? Double, seconds.isFinite, seconds > 0 else { throw AntigravityError.invalidResponse }
             var updated = stored
@@ -111,7 +113,7 @@ actor AntigravityService {
         let project = override.isEmpty ? credentials.projectID : override
         guard !project.isEmpty else { throw AntigravityError.noProject }
         let body = AntigravityCore.generationBody(project: project, model: model, system: system, text: text)
-        let response = try await json(AntigravityCore.apiRequest(action: "generateContent", token: credentials.accessToken, body: body))
+        let response = try await json(AntigravityCore.apiRequest(action: "generateContent", token: credentials.accessToken, body: body), stage: .generate)
         try checkEpoch(expected)
         return try AntigravityCore.generatedText(response)
     }
