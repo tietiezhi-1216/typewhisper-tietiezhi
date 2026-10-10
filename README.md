@@ -2,7 +2,7 @@
 
 TypeWhisper 原生 macOS 插件：**MiMo ASR + Antigravity OAuth 润色**。
 
-设置页只有 MiMo API Key、Antigravity 登录、模型与思考等级。登录后自动获取账号的文本模型列表，也可手动刷新。项目 ID 等放在折叠的“高级”里。
+设置页只有 MiMo API Key、Antigravity 登录、模型与思考等级。登录后自动获取账号的文本模型列表，也可手动刷新。不需要手填项目 ID，不初始化 Cloud 项目。
 
 > Antigravity 是非官方接入，可能被拒绝或导致账号受限：[Google 条款](https://antigravity.google/terms)。登录不保证模型调用成功。
 
@@ -11,7 +11,7 @@ TypeWhisper 原生 macOS 插件：**MiMo ASR + Antigravity OAuth 润色**。
 支持 **Apple Silicon 与 Intel、macOS 14+**。需要安装 **TypeWhisper 1.7.1+**，已验证版本为 1.7.1；后续宿主版本仍需兼容性验证。不是 Windows/iPhone 插件。
 
 1. 登录 GitHub，打开本仓库的 **Releases**。
-2. 下载 `tietiezhi-0.3.1-macos-universal.zip` 并解压。
+2. 下载 `tietiezhi-0.4.0-macos-universal.zip` 并解压。
 3. 在终端进入解压后的目录，运行：
 
    ```sh
@@ -32,16 +32,19 @@ TypeWhisper 原生 macOS 插件：**MiMo ASR + Antigravity OAuth 润色**。
 - 安装位置：`~/Library/Application Support/TypeWhisper/Plugins/tietiezhi.bundle`
 - 旧版备份：`~/Library/Application Support/TypeWhisper/PluginBackups/`
 - 原 `MiMoASR.bundle` 安装时会迁移到备份，避免重复加载。
-- 内部插件 ID 与提供商 ID 保持不变，原有 Key、Google 登录和工作流继续复用。
+- 内部插件 ID 与提供商 ID 保持不变，原有 Key、Google 登录和工作流不会删除。
+- **升级 0.4.0 后请重新登录一次**：新增 Pi 使用的 `aicode` 授权范围，旧 Token 仅刷新不能补齐权限。
+- 旧版手填项目偏好不再参与路由；旧的已发现项目仍保留。模型缓存采用新版本，打开设置重新获取。
 
 ## 模型与思考等级
 
 - 从 `fetchAvailableModels` 获取模型 ID 和名称，不伪造成功的模型列表。
-- 展示支持的 Gemini/Claude 文本模型，过滤图片、语音、嵌入等模型。
-- Gemini 3 使用 `thinkingLevel`；Gemini 2.5 / Claude thinking 使用 token budget。
-- 具体选项按模型族提供；固定 high/low 的模型和不支持思考的模型只有“默认”。是否接受参数以 Google 后端为准。
+- 展示 Gemini / Claude / GPT-OSS 文本模型，过滤图片、语音、嵌入与内部模型。
+- 合并三个固定 Cloud Code Assist 端点的目录；模型按族展示，保留实际运行 ID、来源端点和 `model_enum`。
+- 思考档位会选中对应运行 ID，并使用 Pi 的 CLI `thinkingBudget`，不是公共 Gemini API 的 `thinkingLevel`。优先读取目录宣告的档位和能力。
+- “默认”与“关闭”按 Pi 默认行为发送零思考预算，优先选择 low 运行档位。高级思考会消耗更多额度；原始思考文本不会插入润色结果。
 - TypeWhisper 工作流也能单独指定思考等级，覆盖插件默认值。
-- 可用模型和权限会变化，选择“默认”不会强制覆盖模型的思考设置。
+- 可用模型和权限会变化，最终以 Google 后端为准。目录失败不会被伪装成成功，也不会回滚已完成的 OAuth。
 
 ## 安全与限制
 
@@ -49,7 +52,11 @@ TypeWhisper 原生 macOS 插件：**MiMo ASR + Antigravity OAuth 润色**。
 
 使用社区公开桌面 OAuth 客户端，授权页名称可能不是 tietiezhi，权限包含 Google Cloud。首次点击登录会弹出简短风险确认。
 
-“退出”只清除本插件的本地凭据；远端撤销在 **高级 → 撤销 Google 授权**。不轮换账号、端点或绕过 403/429，不创建自定义 Cloud 项目或开通付费套餐。首次登录若服务器明确提供默认免费套餐，可在登录确认后初始化托管免费项目，并有限轮询初始化结果。
+“退出”只清除本插件的本地凭据和模型缓存；远端撤销在 **高级 → 撤销 Google 授权**。不轮换账号、不绕过 401/403/429；这些错误不会触发端点重试。不创建项目、初始化套餐或开通付费服务。
+
+原生 Swift 实现参考本机 `pi-antigravity 0.9.0`，不运行 Pi、不读取 Pi/浏览器的登录凭据。HTTP 使用 CLI 协议兼容头并保留 `tietiezhi` 标记。只读目录探测可在方法不存在、服务故障或超时后尝试另外两个固定 Google 端点；生成请求只使用已发现的来源端点，不自动重试。
+
+授权成功独立保存；项目发现不是登录前提。先尝试 `loadCodeAssist` 和 `listCloudAICompanionProjects`，未返回项目时使用按账号生成的稳定 UUID 路由，与 Pi 的主要逻辑一致。UUID 不是真实 Cloud 项目、不会赋予额外权限，后端仍可能拒绝。资料读取失败时以本插件新取得的凭据摘要作为账号种子。生成使用 `streamGenerateContent?alt=sse`，只有完整 STOP 结果才交给宿主。
 
 MiMo 只负责转录，停止录音后出结果，不提供实时字幕/翻译；长录音每 180 秒分段，段落边界可能影响准确率。开启润色时，文本发送到 Google。插件不记录音频或文字，TypeWhisper 自身历史设置仍然适用。
 
@@ -58,7 +65,7 @@ MiMo 只负责转录，停止录音后出结果，不提供实时字幕/翻译�
 错误会区分换 Token、查询项目、获取模型和调用模型，并只展示白名单错误码/字段名。
 
 - `invalid_grant`：重新发起登录，不要刷新旧回调页面。
-- 缺少项目：留空项目 ID，重新登录并确认免费初始化。如果服务器没有提供可用的默认免费套餐，仍需在官方应用完成初始化，或填写自己有权限的真实 Google Cloud 项目 ID；不能填 `1`。
+- 旧版“未找到项目”或填了 `1`：升级后重新登录；不再需要这个字段，也不会初始化免费项目。
 - 403：Google 拒绝访问；429：额度/频率受限，不自动绕过。
 - 模型列表获取失败：保留已有缓存，仍可点击“刷新模型”重试。
 
@@ -88,4 +95,4 @@ GPL-3.0，第三方 OAuth 兼容常量的 MIT 声明见 `THIRD_PARTY_NOTICES.md`
 - [TypeWhisper SDK](https://github.com/TypeWhisper/typewhisper-mac/tree/v1.7.1/TypeWhisperPluginSDK)
 - [MiMo ASR](https://mimo.mi.com/docs/en/asr/mimo-v2.5-asr)
 - [Antigravity OAuth 协议参考](https://github.com/shekohex/opencode-google-antigravity-auth)
-- [Google CLI 首次初始化协议参考](https://github.com/google-gemini/gemini-cli/blob/main/packages/core/src/code_assist/setup.ts)
+- [Pi Antigravity 0.9.0 协议参考](https://github.com/Rahularya01/pi-antigravity)

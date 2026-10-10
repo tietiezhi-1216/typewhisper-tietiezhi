@@ -4,10 +4,9 @@ enum AntigravityRequestStage: String, Sendable {
     case exchange = "授权码换取 Token"
     case refresh = "刷新登录凭据"
     case project = "查询账号项目（loadCodeAssist）"
-    case generate = "调用润色模型（generateContent）"
+    case generate = "调用润色模型（streamGenerateContent）"
     case profile = "读取账号信息"
     case models = "获取模型列表（fetchAvailableModels）"
-    case onboarding = "初始化免费项目（onboardUser）"
 }
 
 struct AntigravityHTTPError: LocalizedError, Sendable {

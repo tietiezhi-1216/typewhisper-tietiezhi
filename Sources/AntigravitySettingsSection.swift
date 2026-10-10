@@ -10,7 +10,6 @@ struct AntigravitySettingsSection: View {
     @State private var model = AntigravityCore.defaultModel
     @State private var models: [AntigravityModel] = []
     @State private var thinking = AntigravityThinking.auto
-    @State private var project = ""
     @State private var confirmLogin = false
 
     var body: some View {
@@ -46,19 +45,16 @@ struct AntigravitySettingsSection: View {
                     }
                 }.disabled(models.isEmpty || busy)
                 Picker("思考等级", selection: $thinking) {
-                    ForEach(AntigravityThinking.options(for: model), id: \.self) { item in
+                    ForEach(plugin.thinkingOptions(for: model), id: \.self) { item in
                         Text(item.title).tag(item)
                     }
-                }.disabled(busy || AntigravityThinking.options(for: model).count < 2)
+                }.disabled(busy || plugin.thinkingOptions(for: model).count < 2)
             }
             if !status.isEmpty {
                 Text(status).font(.caption).foregroundStyle(failed ? Color.red : Color.secondary)
                     .textSelection(.enabled)
             }
             DisclosureGroup("高级") {
-                TextField("项目 ID（可选）", text: $project)
-                    .onSubmit { save() }
-                Button("保存项目") { save() }.disabled(busy)
                 Link("撤销 Google 授权", destination: URL(string: "https://myaccount.google.com/connections")!)
                 Link("非官方接入 · 使用条款", destination: URL(string: "https://antigravity.google/terms")!)
             }
@@ -67,8 +63,9 @@ struct AntigravitySettingsSection: View {
             Button("取消", role: .cancel) {}
             Button("继续登录") {
                 run {
-                    try plugin.saveAntigravityOptions(model: model, project: project, thinking: thinking)
-                    try await plugin.loginAntigravity(allowFreeOnboarding: true)
+                    try plugin.saveAntigravityOptions(model: model, thinking: thinking)
+                    try await plugin.loginAntigravity()
+                    status = "已登录，正在获取模型…"
                     signedIn = true
                     // Login and model discovery are distinct, so catalog failure
                     // must not make a successful login appear to have failed.
@@ -81,16 +78,15 @@ struct AntigravitySettingsSection: View {
                 }
             }
         } message: {
-            Text("非官方接入可能导致账号受限，授权包含 Google Cloud 权限。若账号支持，将初始化免费项目，不开通付费套餐。是否继续？")
+            Text("非官方接入可能导致账号受限，授权包含 Google Cloud 权限。不会创建项目或开通付费套餐。是否继续？")
         }
         .onChange(of: model) { _, _ in
-            if !AntigravityThinking.options(for: model).contains(thinking) { thinking = .auto }
+            if !plugin.thinkingOptions(for: model).contains(thinking) { thinking = .auto }
             save()
         }
         .onChange(of: thinking) { _, _ in save() }
         .onAppear {
             reload()
-            project = plugin.antigravityProject
             if signedIn { refresh() }
         }
         .onDisappear { task?.cancel() }
@@ -103,7 +99,7 @@ struct AntigravitySettingsSection: View {
         thinking = plugin.antigravityThinking
     }
     private func save() {
-        do { try plugin.saveAntigravityOptions(model: model, project: project, thinking: thinking) }
+        do { try plugin.saveAntigravityOptions(model: model, thinking: thinking) }
         catch { failed = true; status = error.localizedDescription }
     }
     private func refresh() {

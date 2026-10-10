@@ -31,7 +31,7 @@ final class MiMoASRPlugin: NSObject, TranscriptionEnginePlugin, LLMProviderPlugi
         let key = host.loadSecret(key: "api-key") ?? ""
         let credentials = AntigravityCredentials.decode(host.loadSecret(key: AntigravityCore.secretKey))
         let model = host.userDefault(forKey: "antigravity-model") as? String ?? AntigravityCore.defaultModel
-        let models = (host.userDefault(forKey: "antigravity-models") as? Data).flatMap { try? JSONDecoder().decode([AntigravityModel].self, from: $0) } ?? []
+        let models = (host.userDefault(forKey: AntigravityCore.catalogKey) as? Data).flatMap { try? JSONDecoder().decode([AntigravityModel].self, from: $0) } ?? []
         let thinking = AntigravityThinking(rawValue: host.userDefault(forKey: "antigravity-thinking") as? String ?? "auto") ?? .auto
         state.withLock {
             $0.host = host; $0.key = key
@@ -99,37 +99,35 @@ final class MiMoASRPlugin: NSObject, TranscriptionEnginePlugin, LLMProviderPlugi
     var antigravityThinking: AntigravityThinking { state.withLock { $0.thinking } }
     var supportedModels: [PluginModelInfo] {
         let models = antigravityModels
-        if models.isEmpty { return [PluginModelInfo(id: antigravityModel, displayName: antigravityModel)] }
+        if models.isEmpty { return [] }
         return models.map { PluginModelInfo(id: $0.id, displayName: $0.name) }
     }
+    func thinkingOptions(for model: String) -> [AntigravityThinking] {
+        if let item = antigravityModels.first(where: { $0.id == model }) { return item.efforts }
+        // Old workflows may still contain a fixed runtime ID. Preserve it.
+        if antigravityModels.contains(where: { $0.variants?.values.contains(where: { $0.id == model }) == true }) { return [.auto] }
+        return AntigravityThinking.options(for: model)
+    }
     func supportedEfforts(for model: String?) -> [PluginLLMEffortInfo] {
-        AntigravityThinking.options(for: model ?? antigravityModel).map {
+        thinkingOptions(for: model ?? antigravityModel).map {
             PluginLLMEffortInfo(id: $0.rawValue, displayName: $0.title)
         }
     }
     func defaultEffortId(for model: String?) -> String? {
-        let options = AntigravityThinking.options(for: model ?? antigravityModel)
+        let options = thinkingOptions(for: model ?? antigravityModel)
         return options.contains(antigravityThinking) ? antigravityThinking.rawValue : "auto"
     }
     private func antigravityHost() throws -> any HostServices {
         guard let host = state.withLock({ $0.host }) else { throw AntigravityError.notLoggedIn }
         return host
     }
-    @MainActor var antigravityProject: String {
-        (try? antigravityHost().userDefault(forKey: "antigravity-project") as? String) ?? ""
-    }
-    @MainActor func saveAntigravityOptions(model: String, project: String? = nil, thinking: AntigravityThinking? = nil) throws {
+    @MainActor func saveAntigravityOptions(model: String, thinking: AntigravityThinking? = nil) throws {
         let host = try antigravityHost()
         let model = model.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !model.isEmpty else { throw AntigravityError.invalidResponse }
         host.setUserDefault(model, forKey: "antigravity-model")
-        if let project {
-            let project = project.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard AntigravityCore.validProjectOverride(project) else { throw AntigravityError.invalidProject }
-            host.setUserDefault(project, forKey: "antigravity-project")
-        }
         let selectedThinking = thinking ?? antigravityThinking
-        let resolvedThinking = AntigravityThinking.options(for: model).contains(selectedThinking) ? selectedThinking : .auto
+        let resolvedThinking = thinkingOptions(for: model).contains(selectedThinking) ? selectedThinking : .auto
         host.setUserDefault(resolvedThinking.rawValue, forKey: "antigravity-thinking")
         state.withLock { $0.antigravityModel = model; $0.thinking = resolvedThinking }
         host.notifyCapabilitiesChanged()
@@ -140,25 +138,27 @@ final class MiMoASRPlugin: NSObject, TranscriptionEnginePlugin, LLMProviderPlugi
         let models = try await antigravity.models(host: host)
         try Task.checkCancellation()
         guard state.withLock({ $0.lifecycle == lifecycle }) else { throw CancellationError() }
-        host.setUserDefault(try JSONEncoder().encode(models), forKey: "antigravity-models")
+        host.setUserDefault(try JSONEncoder().encode(models), forKey: AntigravityCore.catalogKey)
         state.withLock { $0.antigravityModels = models }
         let selected = models.contains(where: { $0.id == antigravityModel }) ? antigravityModel :
-            (models.first(where: { $0.id.contains("flash") })?.id ?? models[0].id)
+            (models.first(where: { $0.id == AntigravityCore.defaultModel })?.id ?? models.first(where: { $0.id.contains("flash") })?.id ?? models[0].id)
         try saveAntigravityOptions(model: selected)
     }
-    @MainActor func loginAntigravity(allowFreeOnboarding: Bool = false) async throws {
+    @MainActor func loginAntigravity() async throws {
         let host = try antigravityHost()
-        let lifecycle = state.withLock { $0.lifecycle }
-        let credentials = try await antigravity.login(host: host, projectOverride: antigravityProject, allowFreeOnboarding: allowFreeOnboarding)
-        try Task.checkCancellation()
+        let lifecycle = UUID()
+        state.withLock { $0.lifecycle = lifecycle }
+        let credentials = try await antigravity.login(host: host)
         guard state.withLock({ $0.lifecycle == lifecycle }) else { throw CancellationError() }
-        state.withLock { $0.antigravityLoggedIn = true; $0.antigravityEmail = credentials.email }
+        host.setUserDefault(nil, forKey: AntigravityCore.catalogKey)
+        state.withLock { $0.antigravityLoggedIn = true; $0.antigravityEmail = credentials.email; $0.antigravityModels = [] }
         host.notifyCapabilitiesChanged()
     }
     @MainActor func logoutAntigravity() async throws {
         let host = try antigravityHost()
         try await antigravity.logout(host: host)
-        state.withLock { $0.antigravityLoggedIn = false; $0.antigravityEmail = nil }
+        host.setUserDefault(nil, forKey: AntigravityCore.catalogKey)
+        state.withLock { $0.antigravityLoggedIn = false; $0.antigravityEmail = nil; $0.antigravityModels = []; $0.lifecycle = UUID() }
         host.notifyCapabilitiesChanged()
     }
     func process(systemPrompt: String, userText: String, model: String?) async throws -> String {
@@ -166,8 +166,10 @@ final class MiMoASRPlugin: NSObject, TranscriptionEnginePlugin, LLMProviderPlugi
     }
     func process(systemPrompt: String, userText: String, model: String?, effort: String?) async throws -> String {
         let host = try antigravityHost()
-        let thinking = effort.flatMap(AntigravityThinking.init(rawValue:)) ?? antigravityThinking
-        return try await antigravity.generate(host: host, model: model ?? antigravityModel, system: systemPrompt, text: userText, thinking: thinking)
+        let selected = model ?? antigravityModel
+        let requested = effort.flatMap(AntigravityThinking.init(rawValue:)) ?? antigravityThinking
+        let thinking = thinkingOptions(for: selected).contains(requested) ? requested : .auto
+        return try await antigravity.generate(host: host, model: selected, system: systemPrompt, text: userText, thinking: thinking)
     }
 
     @MainActor var settingsView: AnyView? { AnyView(MiMoSettingsView(plugin: self)) }

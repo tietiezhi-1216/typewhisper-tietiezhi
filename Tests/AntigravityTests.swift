@@ -70,7 +70,7 @@ extension Tests {
         let exchangeMock = MockTransport([(400, #"{"error":"invalid_grant","error_description":"fake-secret"}"#)])
         let exchangeService = AntigravityService(transport: { try await exchangeMock.send($0) })
         do {
-            _ = try await exchangeService.completeAuthorization(code: "fake", verifier: "fake", host: TestHost(), projectOverride: "")
+            _ = try await exchangeService.completeAuthorization(code: "fake", verifier: "fake", host: TestHost())
             fatalError("Bad exchange accepted")
         } catch let error as AntigravityHTTPError {
             expect(error.stage == .exchange && error.status == 400 && error.diagnostic.contains("invalid_grant"), "Token-exchange 400 is distinguished from model errors")
@@ -81,22 +81,22 @@ extension Tests {
         try host.storeSecret(key: "api-key", value: "fake-mimo-key")
         let loginMock = MockTransport([
             (200, #"{"access_token":"fake-access","refresh_token":"fake-refresh","expires_in":3600}"#),
-            (200, #"{"cloudaicompanionProject":{"id":"fake-project"}}"#),
             (200, #"{"email":"offline@example.invalid"}"#)
         ])
         let service = AntigravityService(transport: { try await loginMock.send($0) })
-        let credentials = try await service.completeAuthorization(code: "fake-code", verifier: "fake-verifier", host: host, projectOverride: "")
-        expect(credentials.projectID == "fake-project", "Discover account project after authorization")
+        let credentials = try await service.completeAuthorization(code: "fake-code", verifier: "fake-verifier", host: host)
+        expect(credentials.projectID == AntigravityCore.stableProjectID(seed: "offline@example.invalid") && credentials.projectIsFallback == true, "OAuth succeeds independently of project discovery")
         expect(AntigravityCredentials.decode(host.loadSecret(key: AntigravityCore.secretKey))?.email == "offline@example.invalid", "OAuth credentials stored through host secret API")
         expect(host.loadSecret(key: "api-key") == "fake-mimo-key", "OAuth leaves MiMo key untouched")
         let loginRequests = await loginMock.allRequests()
         expect(loginRequests[0].url?.host == "oauth2.googleapis.com", "Exchange only at Google token endpoint")
-        expect(loginRequests[1].url?.path == "/v1internal:loadCodeAssist", "Read account without automatic onboarding")
-        let projectBody = try JSONSerialization.jsonObject(with: loginRequests[1].httpBody!) as! [String: Any]
-        expect((projectBody["metadata"] as? [String: String])?["pluginType"] == "GEMINI", "Project request uses GEMINI plugin enum, not ANTIGRAVITY")
+        expect(loginRequests.count == 2 && loginRequests[1].url?.path == "/oauth2/v1/userinfo", "Login only exchanges tokens and optionally reads profile")
+        expect(AntigravityCore.scopes.contains("https://www.googleapis.com/auth/aicode"), "OAuth requests missing Pi aicode scope")
 
         var expired = credentials
         expired.expiresAt = Date(timeIntervalSince1970: 0)
+        expired.projectID = "fake-project"
+        expired.projectIsFallback = false
         try host.storeSecret(key: AntigravityCore.secretKey, value: expired.encoded())
         let refreshMock = MockTransport([
             (200, #"{"access_token":"new-fake-access","expires_in":3600}"#),
@@ -111,7 +111,7 @@ extension Tests {
         let refreshRequests = await refreshMock.allRequests()
         expect(refreshRequests.count == 3 && refreshRequests.filter { $0.url?.host == "oauth2.googleapis.com" }.count == 1, "Coalesce concurrent OAuth refresh")
         expect(AntigravityCredentials.decode(host.loadSecret(key: AntigravityCore.secretKey))?.refreshToken == "fake-refresh", "Keep refresh token when Google omits replacement")
-        let generationRequests = refreshRequests.filter { $0.url?.path.contains("generateContent") == true }
+        let generationRequests = refreshRequests.filter { $0.url?.path.hasSuffix(":streamGenerateContent") == true }
         expect(generationRequests.allSatisfy { $0.value(forHTTPHeaderField: "Authorization") == "Bearer new-fake-access" }, "Generation uses refreshed access token")
         let generationBody = try JSONSerialization.jsonObject(with: generationRequests[0].httpBody!) as! [String: Any]
         expect(generationBody["project"] as? String == "fake-project", "Generation uses account project, not a shared project")
@@ -140,11 +140,9 @@ extension Tests {
             (200, #"{"access_token":"a","refresh_token":"r","expires_in":3600}"#), (200, "{}")
         ])
         let incomplete = AntigravityService(transport: { try await missingProjectMock.send($0) })
-        do {
-            _ = try await incomplete.completeAuthorization(code: "fake", verifier: "fake", host: failedHost, projectOverride: "")
-            fatalError("Missing project accepted")
-        } catch AntigravityError.noProject { print("PASS: require project; never provision without consent") }
-        expect(failedHost.loadSecret(key: AntigravityCore.secretKey) == nil, "Failed login does not persist incomplete credentials")
+        let withoutProfile = try await incomplete.completeAuthorization(code: "fake", verifier: "fake", host: failedHost)
+        expect(withoutProfile.email == nil && !withoutProfile.projectID.isEmpty, "Profile failure cannot block successful OAuth")
+        expect(AntigravityCredentials.decode(failedHost.loadSecret(key: AntigravityCore.secretKey)) != nil, "Persist valid credentials without a Google Cloud project")
 
         try host.storeSecret(key: AntigravityCore.secretKey, value: expired.encoded())
         let lateMock = MockTransport([(200, #"{"access_token":"late","expires_in":3600}"#)])
