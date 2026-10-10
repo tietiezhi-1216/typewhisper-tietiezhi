@@ -26,7 +26,10 @@ jobs:
       - name: Package
         run: ./package.sh
       - uses: actions/upload-artifact@v4
+        # A full account-wide artifact quota must not mark successful tests failed.
+        continue-on-error: true
         with:
+          retention-days: 1
           name: tietiezhi-macos-universal
           path: |
             build/tietiezhi-*-macos-universal.zip

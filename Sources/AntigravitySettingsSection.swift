@@ -68,7 +68,7 @@ struct AntigravitySettingsSection: View {
             Button("继续登录") {
                 run {
                     try plugin.saveAntigravityOptions(model: model, project: project, thinking: thinking)
-                    try await plugin.loginAntigravity()
+                    try await plugin.loginAntigravity(allowFreeOnboarding: true)
                     signedIn = true
                     // Login and model discovery are distinct, so catalog failure
                     // must not make a successful login appear to have failed.
@@ -81,7 +81,7 @@ struct AntigravitySettingsSection: View {
                 }
             }
         } message: {
-            Text("可能导致 Google 账号受限。授权使用社区桌面客户端，包含 Google Cloud 权限。是否继续？")
+            Text("非官方接入可能导致账号受限，授权包含 Google Cloud 权限。若账号支持，将初始化免费项目，不开通付费套餐。是否继续？")
         }
         .onChange(of: model) { _, _ in
             if !AntigravityThinking.options(for: model).contains(thinking) { thinking = .auto }

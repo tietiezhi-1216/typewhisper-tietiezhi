@@ -123,7 +123,11 @@ final class MiMoASRPlugin: NSObject, TranscriptionEnginePlugin, LLMProviderPlugi
         let model = model.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !model.isEmpty else { throw AntigravityError.invalidResponse }
         host.setUserDefault(model, forKey: "antigravity-model")
-        if let project { host.setUserDefault(project.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "antigravity-project") }
+        if let project {
+            let project = project.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard AntigravityCore.validProjectOverride(project) else { throw AntigravityError.invalidProject }
+            host.setUserDefault(project, forKey: "antigravity-project")
+        }
         let selectedThinking = thinking ?? antigravityThinking
         let resolvedThinking = AntigravityThinking.options(for: model).contains(selectedThinking) ? selectedThinking : .auto
         host.setUserDefault(resolvedThinking.rawValue, forKey: "antigravity-thinking")
@@ -142,10 +146,10 @@ final class MiMoASRPlugin: NSObject, TranscriptionEnginePlugin, LLMProviderPlugi
             (models.first(where: { $0.id.contains("flash") })?.id ?? models[0].id)
         try saveAntigravityOptions(model: selected)
     }
-    @MainActor func loginAntigravity() async throws {
+    @MainActor func loginAntigravity(allowFreeOnboarding: Bool = false) async throws {
         let host = try antigravityHost()
         let lifecycle = state.withLock { $0.lifecycle }
-        let credentials = try await antigravity.login(host: host, projectOverride: antigravityProject)
+        let credentials = try await antigravity.login(host: host, projectOverride: antigravityProject, allowFreeOnboarding: allowFreeOnboarding)
         try Task.checkCancellation()
         guard state.withLock({ $0.lifecycle == lifecycle }) else { throw CancellationError() }
         state.withLock { $0.antigravityLoggedIn = true; $0.antigravityEmail = credentials.email }

@@ -76,6 +76,7 @@ import TypeWhisperPluginSDK
         expect(effortProvider.supportedEfforts(for: "gemini-3-flash").contains(where: { $0.id == "low" }), "Actual bundle exposes thinking levels to TypeWhisper workflows")
         try await antigravityTests()
         try await modelTests()
+        try await onboardingTests()
         try await loopbackTests()
         print("All tests passed. Only offline mocks and loopback HTTP; no real credentials, browser login, or live API calls.")
     }

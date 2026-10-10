@@ -11,7 +11,7 @@ TypeWhisper 原生 macOS 插件：**MiMo ASR + Antigravity OAuth 润色**。
 支持 **Apple Silicon 与 Intel、macOS 14+**。需要安装 **TypeWhisper 1.7.1+**，已验证版本为 1.7.1；后续宿主版本仍需兼容性验证。不是 Windows/iPhone 插件。
 
 1. 登录 GitHub，打开本仓库的 **Releases**。
-2. 下载 `tietiezhi-0.3.0-macos-universal.zip` 并解压。
+2. 下载 `tietiezhi-0.3.1-macos-universal.zip` 并解压。
 3. 在终端进入解压后的目录，运行：
 
    ```sh
@@ -49,7 +49,7 @@ TypeWhisper 原生 macOS 插件：**MiMo ASR + Antigravity OAuth 润色**。
 
 使用社区公开桌面 OAuth 客户端，授权页名称可能不是 tietiezhi，权限包含 Google Cloud。首次点击登录会弹出简短风险确认。
 
-“退出”只清除本插件的本地凭据；远端撤销在 **高级 → 撤销 Google 授权**。不轮换账号、端点或绕过 403/429，不自动创建项目或开通付费套餐。
+“退出”只清除本插件的本地凭据；远端撤销在 **高级 → 撤销 Google 授权**。不轮换账号、端点或绕过 403/429，不创建自定义 Cloud 项目或开通付费套餐。首次登录若服务器明确提供默认免费套餐，可在登录确认后初始化托管免费项目，并有限轮询初始化结果。
 
 MiMo 只负责转录，停止录音后出结果，不提供实时字幕/翻译；长录音每 180 秒分段，段落边界可能影响准确率。开启润色时，文本发送到 Google。插件不记录音频或文字，TypeWhisper 自身历史设置仍然适用。
 
@@ -58,7 +58,7 @@ MiMo 只负责转录，停止录音后出结果，不提供实时字幕/翻译�
 错误会区分换 Token、查询项目、获取模型和调用模型，并只展示白名单错误码/字段名。
 
 - `invalid_grant`：重新发起登录，不要刷新旧回调页面。
-- 缺少项目：先完成官方应用初始化，或在“高级”填写自己有权限的项目。
+- 缺少项目：留空项目 ID，重新登录并确认免费初始化。如果服务器没有提供可用的默认免费套餐，仍需在官方应用完成初始化，或填写自己有权限的真实 Google Cloud 项目 ID；不能填 `1`。
 - 403：Google 拒绝访问；429：额度/频率受限，不自动绕过。
 - 模型列表获取失败：保留已有缓存，仍可点击“刷新模型”重试。
 
@@ -88,3 +88,4 @@ GPL-3.0，第三方 OAuth 兼容常量的 MIT 声明见 `THIRD_PARTY_NOTICES.md`
 - [TypeWhisper SDK](https://github.com/TypeWhisper/typewhisper-mac/tree/v1.7.1/TypeWhisperPluginSDK)
 - [MiMo ASR](https://mimo.mi.com/docs/en/asr/mimo-v2.5-asr)
 - [Antigravity OAuth 协议参考](https://github.com/shekohex/opencode-google-antigravity-auth)
+- [Google CLI 首次初始化协议参考](https://github.com/google-gemini/gemini-cli/blob/main/packages/core/src/code_assist/setup.ts)

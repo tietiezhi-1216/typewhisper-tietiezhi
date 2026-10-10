@@ -7,6 +7,7 @@ enum AntigravityRequestStage: String, Sendable {
     case generate = "调用润色模型（generateContent）"
     case profile = "读取账号信息"
     case models = "获取模型列表（fetchAvailableModels）"
+    case onboarding = "初始化免费项目（onboardUser）"
 }
 
 struct AntigravityHTTPError: LocalizedError, Sendable {

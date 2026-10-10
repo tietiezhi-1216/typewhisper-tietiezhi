@@ -73,7 +73,7 @@ enum AntigravityCore {
         request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         // Identify the actual third-party client; do not spoof an IDE version.
-        request.setValue("tietiezhi/0.3.0", forHTTPHeaderField: "User-Agent")
+        request.setValue("tietiezhi/0.3.1", forHTTPHeaderField: "User-Agent")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request
     }
@@ -85,6 +85,29 @@ enum AntigravityCore {
          "request": ["systemInstruction": ["parts": [["text": system]]],
                      "contents": [["role": "user", "parts": [["text": text]]]],
                      "generationConfig": config]]
+    }
+    static func validProjectOverride(_ value: String) -> Bool {
+        value.isEmpty || value.range(of: "^[a-z][a-z0-9-]{4,28}[a-z0-9]$", options: .regularExpression) != nil
+    }
+    static func freeOnboardingTier(_ object: [String: Any]) -> String? {
+        if let paid = object["paidTier"] as? [String: Any], let id = paid["id"] as? String, !id.isEmpty { return nil }
+        if let current = object["currentTier"] as? [String: Any], let id = current["id"] as? String, !id.isEmpty, id != "free-tier" { return nil }
+        let ineligible = object["ineligibleTiers"] as? [[String: Any]] ?? []
+        if ineligible.contains(where: { ($0["tierId"] ?? $0["id"]) as? String == "free-tier" }) { return nil }
+        let tiers = object["allowedTiers"] as? [[String: Any]] ?? []
+        return tiers.first(where: {
+            $0["id"] as? String == "free-tier" && $0["isDefault"] as? Bool == true &&
+                $0["userDefinedCloudaicompanionProject"] as? Bool != true
+        })?["id"] as? String
+    }
+    static func operationRequest(name: String, token: String) throws -> URLRequest {
+        // The server supplies a path, never a host. Reject arbitrary URLs/path traversal.
+        guard name.range(of: "^operations/[A-Za-z0-9._-]+$", options: .regularExpression) != nil,
+              !name.contains("..") else { throw AntigravityError.invalidResponse }
+        var request = URLRequest(url: URL(string: endpoint + "/v1internal/" + name)!, timeoutInterval: 15)
+        request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
+        request.setValue("tietiezhi/0.3.1", forHTTPHeaderField: "User-Agent")
+        return request
     }
     static func project(from object: [String: Any]) -> String? {
         if let value = object["cloudaicompanionProject"] as? String, !value.isEmpty { return value }
@@ -130,7 +153,7 @@ struct AntigravityCredentials: Codable, Sendable {
 }
 
 enum AntigravityError: LocalizedError {
-    case notLoggedIn, invalidResponse, invalidCallback, denied, timedOut, browser, noProject, noModels, busy, incompleteOutput
+    case notLoggedIn, invalidResponse, invalidCallback, denied, timedOut, browser, noProject, invalidProject, onboardingTimedOut, noModels, busy, incompleteOutput
     case http(Int)
     var errorDescription: String? {
         switch self {
@@ -140,7 +163,9 @@ enum AntigravityError: LocalizedError {
         case .denied: return "Google 授权被拒绝或取消。"
         case .timedOut: return "登录超时，请重新点击登录。"
         case .browser: return "无法打开浏览器。"
-        case .noProject: return "未找到 Antigravity 项目。请先在官方应用完成初始化，或填写你有权限的项目 ID。"
+        case .noProject: return "账号未返回项目，也未提供可初始化的免费套餐。请先在官方应用完成初始化，或填写自己有权限的 Google Cloud 项目 ID。"
+        case .invalidProject: return "项目 ID 格式无效，不能随便填 1。请留空自动获取，或填写真实的 Google Cloud 项目 ID。"
+        case .onboardingTimedOut: return "免费项目初始化尚未完成，请稍后重新登录。"
         case .noModels: return "账号没有返回可用的文本模型。"
         case .busy: return "已有登录正在进行，请先取消。"
         case .incompleteOutput: return "润色输出被截断或拦截，未返回不完整结果。"

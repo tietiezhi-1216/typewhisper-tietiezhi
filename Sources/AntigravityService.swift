@@ -39,7 +39,7 @@ actor AntigravityService {
         invalidate()
         try host.storeSecret(key: AntigravityCore.secretKey, value: "")
     }
-    func login(host: any HostServices, projectOverride: String) async throws -> AntigravityCredentials {
+    func login(host: any HostServices, projectOverride: String, allowFreeOnboarding: Bool = false) async throws -> AntigravityCredentials {
         guard !loginRunning else { throw AntigravityError.busy }
         loginRunning = true
         defer { loginRunning = false }
@@ -50,16 +50,17 @@ actor AntigravityService {
         let url = AntigravityCore.authorizationURL(verifier: verifier, state: state)
         let code = try await OAuthLoopback.authenticate(url: url, state: state)
         try checkEpoch(expected)
-        return try await completeAuthorization(code: code, verifier: verifier, host: host, projectOverride: projectOverride)
+        return try await completeAuthorization(code: code, verifier: verifier, host: host, projectOverride: projectOverride, allowFreeOnboarding: allowFreeOnboarding)
     }
     // Split out the post-callback operation for offline transport testing.
-    func completeAuthorization(code: String, verifier: String, host: any HostServices, projectOverride: String) async throws -> AntigravityCredentials {
+    func completeAuthorization(code: String, verifier: String, host: any HostServices, projectOverride: String, allowFreeOnboarding: Bool = false) async throws -> AntigravityCredentials {
         let expected = epoch
         let tokens = try await json(AntigravityCore.tokenRequest(code: code, verifier: verifier), stage: .exchange)
         guard let access = tokens["access_token"] as? String, !access.isEmpty,
               let refresh = tokens["refresh_token"] as? String, !refresh.isEmpty,
               let seconds = tokens["expires_in"] as? Double, seconds.isFinite, seconds > 0 else { throw AntigravityError.invalidResponse }
-        let project = try await discoverProject(access: access, override: projectOverride)
+        try checkEpoch(expected)
+        let project = try await discoverProject(access: access, override: projectOverride, allowFreeOnboarding: allowFreeOnboarding)
         try checkEpoch(expected)
         var credentials = AntigravityCredentials(accessToken: access, refreshToken: refresh, expiresAt: Date().addingTimeInterval(seconds), projectID: project)
         var userInfo = URLRequest(url: URL(string: "https://www.googleapis.com/oauth2/v1/userinfo?alt=json")!, timeoutInterval: 15)
@@ -69,18 +70,44 @@ actor AntigravityService {
         try host.storeSecret(key: AntigravityCore.secretKey, value: credentials.encoded())
         return credentials
     }
-    private func discoverProject(access: String, override: String) async throws -> String {
+    private func discoverProject(access: String, override: String, allowFreeOnboarding: Bool) async throws -> String {
+        let expected = epoch
         let override = override.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard AntigravityCore.validProjectOverride(override) else { throw AntigravityError.invalidProject }
         var metadata: [String: String] = ["ideType": "IDE_UNSPECIFIED", "platform": "PLATFORM_UNSPECIFIED", "pluginType": "GEMINI"]
         var body: [String: Any] = [:]
         if !override.isEmpty { metadata["duetProject"] = override; body["cloudaicompanionProject"] = override }
         body["metadata"] = metadata
         let request = try AntigravityCore.apiRequest(action: "loadCodeAssist", token: access, body: body)
         let response = try await json(request, stage: .project)
+        try checkEpoch(expected)
         if let project = AntigravityCore.project(from: response) { return project }
         if !override.isEmpty { return override }
-        // Do not provision a project, select a paid tier, or rotate endpoints.
-        throw AntigravityError.noProject
+        guard allowFreeOnboarding, let tier = AntigravityCore.freeOnboardingTier(response) else { throw AntigravityError.noProject }
+        // Explicitly consented, server-offered default free tier only. Never infer
+        // eligibility, choose a paid tier, or substitute another account's project.
+        return try await initializeFreeProject(access: access, tier: tier, metadata: metadata)
+    }
+    private func initializeFreeProject(access: String, tier: String, metadata: [String: String]) async throws -> String {
+        let expected = epoch
+        let request = try AntigravityCore.apiRequest(action: "onboardUser", token: access,
+            body: ["tierId": tier, "metadata": metadata])
+        var operation = try await json(request, stage: .onboarding)
+        try checkEpoch(expected)
+        for attempt in 0..<11 {
+            if operation["done"] as? Bool == true {
+                guard let response = operation["response"] as? [String: Any],
+                      let project = AntigravityCore.project(from: response) else { throw AntigravityError.noProject }
+                return project
+            }
+            guard attempt < 10 else { break }
+            guard let name = operation["name"] as? String else { throw AntigravityError.invalidResponse }
+            try await Task.sleep(for: .seconds(3))
+            try checkEpoch(expected)
+            operation = try await json(AntigravityCore.operationRequest(name: name, token: access), stage: .onboarding)
+            try checkEpoch(expected)
+        }
+        throw AntigravityError.onboardingTimedOut
     }
     private func credentials(host: any HostServices) async throws -> AntigravityCredentials {
         guard let stored = AntigravityCredentials.decode(host.loadSecret(key: AntigravityCore.secretKey)) else { throw AntigravityError.notLoggedIn }
