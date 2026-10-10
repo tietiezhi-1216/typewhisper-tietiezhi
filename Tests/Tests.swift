@@ -59,6 +59,10 @@ import TypeWhisperPluginSDK
         expect(engine.transcriptionModels.first?.id == MiMoCore.model, "Host reads model metadata")
         expect(!engine.isConfigured && !engine.supportsStreaming && !engine.supportsTranslation, "Accurate host capability flags")
         expect(engine.settingsView != nil, "Native SwiftUI settings view")
+        guard let expanded = engine as? any AdditionalTranscriptionEnginesProviding,
+              let qwen = expanded.additionalTranscriptionEngines.first else { fatalError("Additional Qwen engine missing") }
+        expect(qwen.providerId == "alibaba-qwen-asr" && qwen.transcriptionModels.count == 10, "Real bundle exposes independent ten-model Qwen engine")
+        expect(!qwen.isConfigured && qwen is any LiveTranscriptionCapablePlugin, "Real bundle Qwen native live capability and opt-in key")
         do {
             _ = try await engine.transcribe(audio: AudioData(samples: [0], wavData: Data(), duration: 0), language: nil, translate: false, prompt: nil)
             fatalError("Missing key accepted")
@@ -67,6 +71,9 @@ import TypeWhisperPluginSDK
         expect(llm.providerName == "Antigravity OAuth（非官方）" && !llm.isAvailable, "Bundle exposes separately configured LLM provider")
         let host = TestHost()
         try host.storeSecret(key: "api-key", value: "fake-mimo-key")
+        try host.storeSecret(key: QwenCore.secretKey, value: "fake-qwen-key")
+        host.setUserDefault("qwen-audio-3.1-asr-flash-message", forKey: QwenCore.modelKey)
+        host.setUserDefault("singapore", forKey: QwenCore.regionKey)
         let auth = AntigravityCredentials(accessToken: "fake", refreshToken: "fake", expiresAt: Date().addingTimeInterval(3600), projectID: "fake-project")
         try host.storeSecret(key: AntigravityCore.secretKey, value: auth.encoded())
         let catalog = try AntigravityCatalog.parse(JSONSerialization.jsonObject(with: Data(piCatalog.utf8)) as! [String: Any])
@@ -74,15 +81,21 @@ import TypeWhisperPluginSDK
         host.setUserDefault("high", forKey: "antigravity-thinking")
         engine.activate(host: host)
         expect(engine.isConfigured && llm.isAvailable, "Both provider configurations restored through host SDK")
+        expect(qwen.isConfigured && qwen.selectedModelId == "qwen-audio-3.1-asr-flash-message" && qwen.supportsStreaming, "Qwen restores separate key and live model preferences")
+        qwen.selectModel("qwen3-asr-flash")
+        expect(!qwen.supportsStreaming && host.userDefault(forKey: QwenCore.modelKey) as? String == "qwen3-asr-flash", "Qwen selection persists and refreshes capability flags")
+        qwen.selectModel("made-up")
+        expect(qwen.selectedModelId == "qwen3-asr-flash" && engine.selectedModelId == MiMoCore.model && engine.isConfigured && llm.isAvailable, "Invalid Qwen selection rejected without affecting MiMo or OAuth")
         expect(llm.supportedModels.contains(where: { $0.id == AntigravityCore.defaultModel }), "LLM model catalog visible to workflows")
         guard let restoredEffort = engine as? any LLMEffortControllableProvider else { fatalError("Effort protocol missing") }
         expect(restoredEffort.defaultEffortId(for: "gemini-3.8-flash") == "high", "Restore selected thinking from host preferences")
         expect(restoredEffort.supportedEfforts(for: "gemini-3.8-flash-high").map(\.id) == ["auto"], "Old fixed-runtime workflows do not offer misleading tier selection")
         engine.deactivate()
         expect(llm.supportedModels.isEmpty, "Do not invent an account catalog when none is cached")
-        expect(!engine.isConfigured && !llm.isAvailable, "Deactivation clears in-memory configuration")
+        expect(!engine.isConfigured && !llm.isAvailable && !qwen.isConfigured, "Deactivation clears all in-memory provider configurations")
         guard let effortProvider = engine as? any LLMEffortControllableProvider else { fatalError("Effort protocol missing") }
         expect(effortProvider.supportedEfforts(for: "gemini-3-flash").contains(where: { $0.id == "low" }), "Actual bundle exposes thinking levels to TypeWhisper workflows")
+        try await qwenTests()
         try await antigravityTests()
         try await modelTests()
         try await routingTests()

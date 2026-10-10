@@ -59,6 +59,14 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+# Qwen ASR protocol references
+
+The native Swift Qwen integration was implemented against Alibaba Cloud's
+public Model Studio HTTP/WebSocket API references. Temporary OSS upload fields
+were verified against the public DashScope Python SDK's oss_utils.py:
+https://github.com/dashscope/dashscope-sdk-python/blob/master/dashscope/utils/oss_utils.py
+No DashScope SDK source or runtime is bundled; no Python dependency is needed.
+
 TypeWhisperPluginSDK: the plugin links against the installed TypeWhisper
 application framework. SDK compile-time metadata is generated from the
 upstream v1.7.1 source checkout; see upstream/LICENSE and LICENSE-COMMERCIAL.md.

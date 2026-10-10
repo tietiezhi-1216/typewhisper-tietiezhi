@@ -4,7 +4,7 @@ import os
 import TypeWhisperPluginSDK
 
 @objc(MiMoASRPlugin)
-final class MiMoASRPlugin: NSObject, TranscriptionEnginePlugin, LLMProviderPlugin, LLMModelSelectable, LLMEffortControllableProvider, @unchecked Sendable {
+final class MiMoASRPlugin: NSObject, TranscriptionEnginePlugin, LLMProviderPlugin, LLMModelSelectable, LLMEffortControllableProvider, AdditionalTranscriptionEnginesProviding, @unchecked Sendable {
     static let pluginId = "com.tietiezhi.typewhisper.mimo-asr"
     static let pluginName = "tietiezhi"
     private struct State {
@@ -20,6 +20,8 @@ final class MiMoASRPlugin: NSObject, TranscriptionEnginePlugin, LLMProviderPlugi
     }
     private let state = OSAllocatedUnfairLock(initialState: State())
     private let antigravity = AntigravityService()
+    let qwen = QwenASREngine()
+    var additionalTranscriptionEngines: [any TranscriptionEnginePlugin] { [qwen] }
     let updater = PluginUpdateService()
     @MainActor private var shortcutController: AppShortcutController?
     @MainActor var appShortcuts: AppShortcutController {
@@ -34,7 +36,7 @@ final class MiMoASRPlugin: NSObject, TranscriptionEnginePlugin, LLMProviderPlugi
         return controller
     }
     var installedPluginBundle: Bundle { Bundle(for: MiMoASRPlugin.self) }
-    var installedPluginVersion: String { installedPluginBundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.5.0" }
+    var installedPluginVersion: String { installedPluginBundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.6.0" }
     // No cookies/cache, no audio or transcript logs. No automatic paid retries.
     private let session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
@@ -44,6 +46,7 @@ final class MiMoASRPlugin: NSObject, TranscriptionEnginePlugin, LLMProviderPlugi
     }()
     required override init() { super.init() }
     func activate(host: any HostServices) {
+        qwen.activate(host: host)
         let key = host.loadSecret(key: "api-key") ?? ""
         let credentials = AntigravityCredentials.decode(host.loadSecret(key: AntigravityCore.secretKey))
         let model = host.userDefault(forKey: "antigravity-model") as? String ?? AntigravityCore.defaultModel
@@ -66,6 +69,7 @@ final class MiMoASRPlugin: NSObject, TranscriptionEnginePlugin, LLMProviderPlugi
         }
     }
     func deactivate() {
+        qwen.deactivate()
         let identity = state.withLock { $0 = State(); return $0.shortcutLifecycle }
         if Thread.isMainThread {
             MainActor.assumeIsolated { shortcutController?.stop() }
@@ -236,6 +240,7 @@ private struct MiMoSettingsView: View {
                 Text(status.isEmpty ? (plugin.isConfigured ? "已配置" : "未配置") : status)
                     .font(.caption).foregroundStyle(failed ? Color.red : Color.secondary)
             }
+            QwenSettingsSection(engine: plugin.qwen)
             AppShortcutSection(controller: plugin.appShortcuts)
             AntigravitySettingsSection(plugin: plugin)
             PluginUpdateSection(plugin: plugin)

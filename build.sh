@@ -35,7 +35,7 @@ manifest=json.load(open('manifest.json'))
 with open(sys.argv[1], 'wb') as f:
     plistlib.dump(dict(CFBundleIdentifier=manifest['id'], CFBundleName=manifest['name'],
                       CFBundleExecutable='tietiezhi',CFBundlePackageType='BNDL',
-                      CFBundleVersion='8',CFBundleShortVersionString=manifest['version'],
+                      CFBundleVersion='9',CFBundleShortVersionString=manifest['version'],
                       NSPrincipalClass=manifest['principalClass'],LSMinimumSystemVersion='14.0'),f)
 PY
 codesign --force --sign - "$BUNDLE"

@@ -1,8 +1,8 @@
 # tietiezhi
 
-TypeWhisper 原生 macOS 插件：**MiMo ASR + Antigravity OAuth 润色 + 组合键快捷启动**。
+TypeWhisper 原生 macOS 插件：**MiMo / 千问 ASR + Antigravity OAuth 润色 + 组合键快捷启动**。
 
-设置页包含 MiMo API Key、快捷启动、Antigravity 登录、模型与思考等级及更新按钮。登录后自动获取账号的文本模型列表，也可手动刷新。不需要手填项目 ID，不初始化 Cloud 项目。
+设置页包含 MiMo 与千问各自的 API Key、快捷启动、Antigravity 登录、模型与思考等级及更新按钮。登录后自动获取账号的文本模型列表，也可手动刷新。不需要手填项目 ID，不初始化 Cloud 项目。
 
 > Antigravity 是非官方接入，可能被拒绝或导致账号受限：[Google 条款](https://antigravity.google/terms)。登录不保证模型调用成功。
 
@@ -11,7 +11,7 @@ TypeWhisper 原生 macOS 插件：**MiMo ASR + Antigravity OAuth 润色 + 组合
 支持 **Apple Silicon 与 Intel、macOS 14+**。需要安装 **TypeWhisper 1.7.1+**，已验证版本为 1.7.1；后续宿主版本仍需兼容性验证。不是 Windows/iPhone 插件。
 
 1. 打开本仓库的 **Releases**（公开下载，无需 GitHub 登录）。
-2. 下载 `tietiezhi-0.5.0-macos-universal.zip` 并解压。
+2. 下载 `tietiezhi-0.6.0-macos-universal.zip` 并解压。
 3. 在终端进入解压后的目录，运行：
 
    ```sh
@@ -20,12 +20,34 @@ TypeWhisper 原生 macOS 插件：**MiMo ASR + Antigravity OAuth 润色 + 组合
 
    不需要 Xcode 或 Swift 编译工具。脚本检查宿主版本和签名，备份旧插件，安装新版。下载隔离标记仅在此插件范围内移除；这是本地开发签名，**未经 Apple 公证**，请先确认来源。
 4. 完全退出并重新打开 TypeWhisper，在 **集成 → 我的插件** 启用 **tietiezhi**。
-5. 保存 MiMo API Key；点击 Antigravity 登录并在浏览器授权。模型列表自动获取，选择模型和思考等级自动保存。
-6. 默认听写引擎选择 **MiMo ASR**；自动润色在 **工作流**里选择 **Antigravity OAuth（非官方）**。
+5. 按需保存 MiMo API Key 或百炼 API Key；不需要同时配置。需要 Google 润色时，再点击 Antigravity 登录并在浏览器授权，选择模型和思考等级。
+6. 听写引擎选择 **MiMo ASR** 或 **千问 ASR（百炼）**；自动润色在 **工作流**里选择 **Antigravity OAuth（非官方）**。
 
 也可通过 TypeWhisper 的“安装插件”选择解压后的 `tietiezhi.bundle`。升级旧版时推荐用脚本，避免同时保留两个同 ID 的 bundle。
 
 **每台设备分别填写 Key、登录 Google。安装包与 GitHub 不包含用户密钥或 Token。**
+
+## 千问 ASR
+
+插件设置 → **千问 ASR（阿里云百炼）** → 输入并保存 API Key → 选择模型。然后在宿主的识别引擎中选择 **千问 ASR（百炼）**。默认北京；新加坡 Key 需切换所属地域，不必填写接口地址或 OSS 账号。
+
+按官方文档核对的 10 个云端 ASR 主型号（模型名称是官方别名，可用性及价格以你的百炼账户为准）：
+
+| 系列 | 已接入模型 ID |
+| --- | --- |
+| Qwen-Audio 3.1 | `qwen-audio-3.1-asr-flash`、`qwen-audio-3.1-asr-flash-message`、`qwen-audio-3.1-asr-flash-streaming`、`qwen-audio-3.1-asr-flash-filetrans` |
+| Qwen-Audio 3.0 | `qwen-audio-3.0-asr-flash`、`qwen-audio-3.0-asr-flash-streaming`、`qwen-audio-3.0-asr-flash-filetrans` |
+| Qwen3 ASR | `qwen3-asr-flash`、`qwen3-asr-flash-realtime`、`qwen3-asr-flash-filetrans` |
+
+- 一个百炼 Key 共用全部型号，独立于 MiMo Key 和 Google 登录；模型/地域选择自动保存。列表不是账号权限探测，不保证每个型号都对你的账号开放。
+- **Flash**：Qwen3 使用 OpenAI 兼容 HTTP；Qwen-Audio 3.x 使用 DashScope HTTP。超过 180 秒分段，分段边界可能降低连续语句准确率。
+- **Streaming / Message / Realtime**：原生 WebSocket 与宿主实时录音协议。句子修订替换旧结果，最终结果须收到结束确认。Qwen3 使用 VAD 与 Base64 PCM；Qwen-Audio 使用双向任务协议与二进制 PCM。录后转写路径按实时速率发送，耗时会更长。
+- **Filetrans**：使用百炼官方临时上传凭证自动上传录音，无需自备 OSS；然后异步提交、轮询、下载结果。Qwen3 使用 `file_url`，Qwen-Audio 使用 `file_urls`。录音临时存储按阿里云策略过期（通常 48 小时）；结果链接通常 24 小时有效。取消本地等待不保证取消云端任务或计费，生产级长文件服务建议自有稳定存储。
+- 音频/文字不写入本插件日志；HTTP 不跟随重定向，API Key 仅发往所选百炼端点，不发送到 OSS。错误不展示原始服务端消息、签名 URL 或录音内容。
+- 插件仅转录，单次录音最多 **30 分钟**（限制本地内存，低于部分 Filetrans 云端上限）；不自动切换模型、地域或重新提交付费任务。宿主自己的失败回退/历史保存逻辑仍然适用。
+- 此处“全系列”指上述官方云端 ASR 主型号，不包括日期快照、未来新型号、通用 Audio/Omni 对话模型。`Qwen3-ASR-0.6B`、`1.7B` 是本地开源权重，ForcedAligner 是对齐器，不能只靠百炼 Key 接入，不列为云端模型。
+
+官方协议：[非实时模型](https://help.aliyun.com/zh/model-studio/non-realtime-speech-recognition-user-guide)、[实时模型](https://help.aliyun.com/zh/model-studio/real-time-speech-recognition-user-guide)、[Qwen3 ASR](https://help.aliyun.com/zh/model-studio/qwen-asr-api-reference)、[Qwen-Audio Flash](https://help.aliyun.com/zh/model-studio/fun-asr-flash-recorded-speech-recognition-http-api)、[Filetrans](https://help.aliyun.com/zh/model-studio/fun-asr-recorded-speech-recognition-http-api)、[Message](https://help.aliyun.com/zh/model-studio/qwen-asr-message-websocket-api)、[Streaming](https://help.aliyun.com/zh/model-studio/qwen-audio-asr-streaming-websocket-api)。
 
 ## 组合键快捷启动
 
@@ -108,11 +130,11 @@ cd typewhisper-tietiezhi
 构建自动取得固定 v1.7.1 SDK 源码，只生成编译元数据，运行时链接宿主框架。
 安装包是 arm64/x86_64 Universal，构建时校验两种架构的 SDK 导入符号。
 
-测试包含实际 bundle 加载、ASR、OAuth/刷新/退出、HTTP 回调、模型列表解析、思考参数、工作流协议、临时目录内的更新安装，以及真实 Carbon 注册/事件派发/冲突/释放。应用启动派发使用注入的测试目标，不打开真实应用或模拟键盘输入，不用真实账号调用 AI 云端；真实按键与应用窗口行为需在本机确认。
+测试包含实际 bundle 加载、独立 MiMo/千问引擎、千问全部型号的请求协议、模拟 OSS 上传/任务轮询与实时音频/修订/取消/完整结束、ASR、OAuth/刷新/退出、HTTP 回调、模型列表解析、思考参数、工作流协议、临时目录内的更新安装，以及真实 Carbon 注册/事件派发/冲突/释放。应用启动派发使用注入的测试目标，不打开真实应用或模拟键盘输入，不用真实账号调用 AI 云端；真实按键与应用窗口行为需在本机确认。
 
 ## 两个独立插件仓库
 
-- 本仓库：TypeWhisper 原生 Swift 插件，提供 MiMo ASR、Antigravity 润色与更新按钮。
+- 本仓库：TypeWhisper 原生 Swift 插件，提供 MiMo/千问 ASR、Antigravity 润色与更新按钮。
 - [tietiezhi-paseo](https://github.com/tietiezhi-1216/tietiezhi-paseo)：Paseo 插件，独立安装、发布，不作为本插件的运行依赖。
 
 ## 许可与参考

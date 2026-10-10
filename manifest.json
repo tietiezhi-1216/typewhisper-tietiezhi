@@ -1,14 +1,14 @@
 {
   "id": "com.tietiezhi.typewhisper.mimo-asr",
   "name": "tietiezhi",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "minHostVersion": "1.7.1",
   "sdkCompatibilityVersion": "v1",
   "minOSVersion": "14.0",
   "author": "tietiezhi",
-  "description": "MiMo ASR, Antigravity OAuth polishing and native app-launch shortcuts.",
+  "description": "MiMo and Qwen ASR, Antigravity OAuth polishing and native app-launch shortcuts.",
   "descriptions": {
-    "zh-CN": "MiMo 语音识别、非官方 Antigravity OAuth 润色与组合键快捷启动。存在 Google 账号限制风险。"
+    "zh-CN": "MiMo 与千问全系列云端语音识别、非官方 Antigravity OAuth 润色与组合键快捷启动。存在 Google 账号限制风险。"
   },
   "category": "transcription",
   "categories": ["transcription", "llm"],

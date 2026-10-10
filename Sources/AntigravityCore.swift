@@ -89,7 +89,7 @@ enum AntigravityCore {
         request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         // CLI protocol compatibility with an explicit third-party application tag.
-        request.setValue("antigravity/cli/1.2.4 (aidev_client; os_type=macos; auth_method=consumer) tietiezhi/0.5.0", forHTTPHeaderField: "User-Agent")
+        request.setValue("antigravity/cli/1.2.4 (aidev_client; os_type=macos; auth_method=consumer) tietiezhi/0.6.0", forHTTPHeaderField: "User-Agent")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request
     }
