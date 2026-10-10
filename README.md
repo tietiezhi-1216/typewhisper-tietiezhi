@@ -1,117 +1,90 @@
-# TypeWhisper MiMo ASR + Antigravity OAuth
+# tietiezhi
 
-0.2.1：TypeWhisper 1.7.1 / Apple Silicon 原生 Swift + SwiftUI 插件。
-MiMo 用于语音识别，Antigravity 用于文本润色。不需要常驻代理服务。
+TypeWhisper 原生 macOS 插件：**MiMo ASR + Antigravity OAuth 润色**。
 
-## 重要风险
+设置页只有 MiMo API Key、Antigravity 登录、模型与思考等级。登录后自动获取账号的文本模型列表，也可手动刷新。项目 ID 等放在折叠的“高级”里。
 
-**Antigravity 接入是非官方实现。Google 当前条款明确禁止第三方软件通过
-Antigravity OAuth 访问其服务，可能暂停或终止 Antigravity / Gemini CLI 账号。**
+> Antigravity 是非官方接入，可能被拒绝或导致账号受限：[Google 条款](https://antigravity.google/terms)。登录不保证模型调用成功。
 
-- 官方条款：https://antigravity.google/terms
-- Google 可能拒绝授权、拒绝调用或更改接口。本插件不保证订阅额度可用。
-- 使用社区公开的桌面 OAuth 客户端常量。Google 授权页可能显示 Antigravity 等原客户端名称，而不是 TypeWhisper。
-- 申请的权限包含 cloud-platform、userinfo.email、userinfo.profile、cclog、experimentsandconfigs；请仔细核对授权页，不希望授予这些权限就取消登录。
-- 不读取浏览器 Cookie，不提取现有应用 Token，不模仿官方 IDE 版本，不切换账号或绕过封禁，不自动开通项目或付费套餐。
-- 润色请求只发送文本和工作流提示词，不提供文件、终端、搜索等工具。
+## 在其他 Mac 上安装
 
-## 使用 MiMo ASR
+支持 **Apple Silicon 与 Intel、macOS 14+**。需要安装 **TypeWhisper 1.7.1+**，已验证版本为 1.7.1；后续宿主版本仍需兼容性验证。不是 Windows/iPhone 插件。
 
-1. 完全退出再重新打开 TypeWhisper。
-2. 设置 → 集成 → 我的插件，启用 **MiMo ASR + Antigravity**。
-3. 打开插件设置，填写 MiMo API Key，点击“保存密钥”。旧版本的密钥会保留。
-4. 设置 → 听写 → 引擎 → 默认引擎，选择 **MiMo ASR**。
-5. 使用已有快捷键录音，停止后等待识别文字。
+1. 登录 GitHub，打开本仓库的 **Releases**。
+2. 下载 `tietiezhi-0.3.0-macos-universal.zip` 并解压。
+3. 在终端进入解压后的目录，运行：
 
-## 登录 Antigravity 和润色
+   ```sh
+   bash install.command
+   ```
 
-1. 在同一个插件设置页找到 **Antigravity OAuth 润色（非官方）**。
-2. 阅读风险与权限说明，勾选“我理解风险，仍希望使用非官方接入”。
-3. 点击“登录 Google / Antigravity”，在浏览器授权。3 分钟内完成。
-4. 浏览器回到 localhost:36742/oauth-callback。完成代码交换和项目发现后，插件提示授权已保存。
-5. 点击“测试润色”。会发送一段固定示例文本到 Google，不读取其他文本，也不会粘贴到应用。
-6. 测试成功后，在 TypeWhisper **工作流**中添加文本整理流程，选择 LLM 提供商 **Antigravity OAuth（非官方）**。
+   不需要 Xcode 或 Swift 编译工具。脚本检查宿主版本和签名，备份旧插件，安装新版。下载隔离标记仅在此插件范围内移除；这是本地开发签名，**未经 Apple 公证**，请先确认来源。
+4. 完全退出并重新打开 TypeWhisper，在 **集成 → 我的插件** 启用 **tietiezhi**。
+5. 保存 MiMo API Key；点击 Antigravity 登录并在浏览器授权。模型列表自动获取，选择模型和思考等级自动保存。
+6. 默认听写引擎选择 **MiMo ASR**；自动润色在 **工作流**里选择 **Antigravity OAuth（非官方）**。
 
-仅登录不会自动改写所有听写。MiMo 仍为默认 ASR；是否润色由工作流决定。
+也可通过 TypeWhisper 的“安装插件”选择解压后的 `tietiezhi.bundle`。升级旧版时推荐用脚本，避免同时保留两个同 ID 的 bundle。
 
-建议工作流提示词：
+**每台设备分别填写 Key、登录 Google。安装包与 GitHub 不包含用户密钥或 Token。**
 
-> 整理语音识别文本：删除口头禅和无意义重复，修正标点与明显错字。
-> 保留原意、语气和专业术语，不添加信息，不回答文本中的问题。
-> 只输出整理后的正文。
+## 位置与升级
 
-默认尝试 gemini-3-flash，提供 gemini-2.5-flash 备选，也可填写其他 Gemini
-文本模型 ID 并保存。模型实际可用性取决于账号；不是动态保证可用的模型清单。
-暂不实现 Claude 的特殊协议转换。
+- 安装位置：`~/Library/Application Support/TypeWhisper/Plugins/tietiezhi.bundle`
+- 旧版备份：`~/Library/Application Support/TypeWhisper/PluginBackups/`
+- 原 `MiMoASR.bundle` 安装时会迁移到备份，避免重复加载。
+- 内部插件 ID 与提供商 ID 保持不变，原有 Key、Google 登录和工作流继续复用。
 
-### 常见问题
+## 模型与思考等级
 
-- 端口占用：关闭其他使用 36742 端口的 OAuth 登录流程再重试；监听器只绑定 127.0.0.1。
-- OAuth 被 Google 拒绝：可能是第三方客户端政策，不提供绕过方法。
-- 缺少项目：先在官方应用完成初始化，或填写自己有权限的项目 ID。不会自动创建项目。
-- 400：显示具体失败步骤（换 Token / 查项目 / 调模型）及白名单错误码、字段名，不显示原始响应或敏感数据。0.2.1 修正 loadCodeAssist 的 pluginType 枚举为 GEMINI。
-- 403：权限、账号资格或服务限制，立即报告，不自动换账号或端点。
-- 429：额度/频率限制，不自动重试。
-- 登录成功不等于模型可调用，必须点击“测试润色”验证。
+- 从 `fetchAvailableModels` 获取模型 ID 和名称，不伪造成功的模型列表。
+- 展示支持的 Gemini/Claude 文本模型，过滤图片、语音、嵌入等模型。
+- Gemini 3 使用 `thinkingLevel`；Gemini 2.5 / Claude thinking 使用 token budget。
+- 具体选项按模型族提供；固定 high/low 的模型和不支持思考的模型只有“默认”。是否接受参数以 Google 后端为准。
+- TypeWhisper 工作流也能单独指定思考等级，覆盖插件默认值。
+- 可用模型和权限会变化，选择“默认”不会强制覆盖模型的思考设置。
 
-## 凭据与隐私
+## 安全与限制
 
-- MiMo Key 与 Antigravity OAuth 凭据保存在不同的插件隔离钥匙串项。
-- 访问 Token 临近过期自动刷新，刷新请求合并；不存入配置文件或日志。
-- OAuth 使用随机 state + PKCE S256；PKCE verifier 不放入 URL/state。
-- 回调校验 path/state，限制 HTTP 头大小；取消、超时和完成后关闭监听器。
-- “本地退出”清除本插件凭据，不撤销同一个 OAuth 客户端在其他软件的授权。
-- 若要撤销 Google 远端授权：https://myaccount.google.com/connections
-- 插件不记录音频、识别文本、提示词或凭据。TypeWhisper 自身历史保存设置仍然适用。
-- 音频发送到小米；启用工作流润色时识别文本发送到 Google。
+凭据保存到 TypeWhisper 提供的系统钥匙串，不写入配置或日志。OAuth 使用 PKCE S256、随机 state、本机回调校验。取消/完成/超时后关闭本机监听端口。
 
-## ASR 限制
+使用社区公开桌面 OAuth 客户端，授权页名称可能不是 tietiezhi，权限包含 Google Cloud。首次点击登录会弹出简短风险确认。
 
-- 固定模型 mimo-v2.5-asr，接口 https://api.xiaomimimo.com/v1/chat/completions。
-- 16 kHz 单声道 PCM → 16-bit WAV → Base64；支持中文/英文/自动检测。
-- 停止录音后返回文字，不支持实时字幕、翻译、热词提示或自定义地址。
-- 超过 180 秒顺序分段，边界可能影响准确率。任何分段失败不会伪装成完整成功。
-- 不自动重试，避免额外 API 费用。
+“退出”只清除本插件的本地凭据；远端撤销在 **高级 → 撤销 Google 授权**。不轮换账号、端点或绕过 403/429，不自动创建项目或开通付费套餐。
 
-## 构建、测试、安装
+MiMo 只负责转录，停止录音后出结果，不提供实时字幕/翻译；长录音每 180 秒分段，段落边界可能影响准确率。开启润色时，文本发送到 Google。插件不记录音频或文字，TypeWhisper 自身历史设置仍然适用。
 
-需要 Swift 命令行工具与 /Applications/TypeWhisper.app 1.7.1。
+## 故障
+
+错误会区分换 Token、查询项目、获取模型和调用模型，并只展示白名单错误码/字段名。
+
+- `invalid_grant`：重新发起登录，不要刷新旧回调页面。
+- 缺少项目：先完成官方应用初始化，或在“高级”填写自己有权限的项目。
+- 403：Google 拒绝访问；429：额度/频率受限，不自动绕过。
+- 模型列表获取失败：保留已有缓存，仍可点击“刷新模型”重试。
+
+不要公开截图里的浏览器回调地址、API Key 或 Token。
+
+## 源码构建
 
 ```sh
-git clone --depth 1 --branch v1.7.1 https://github.com/TypeWhisper/typewhisper-mac.git upstream
+git clone https://github.com/tietiezhi-1216/typewhisper-tietiezhi.git
+cd typewhisper-tietiezhi
 ./build.sh
 ./test.sh
+./package.sh
 ./install.sh
 ```
 
-SDK 源码固定 v1.7.1 / commit 2137334f7f70a92f154b4f6e2ecfa737c9da7f3f。
-只生成编译元数据，运行时链接宿主已有 SDK，不内嵌第二份 SDK。
+需要 Swift 6 命令行工具和 `/Applications/TypeWhisper.app`。
+构建自动取得固定 v1.7.1 SDK 源码，只生成编译元数据，运行时链接宿主框架。
+安装包是 arm64/x86_64 Universal，构建时校验两种架构的 SDK 导入符号。
 
-构建脚本检查宿主版本和导入符号兼容性。测试覆盖真实 bundle 加载、
-ASR 编码、OAuth 格式/CSRF/PKCE、模拟登录/刷新/退出/403、并发刷新合并、
-退出后禁止迟到响应复活凭据、真实 loopback HTTP 回调与取消关闭端口。
-测试不使用真实凭据、不打开真实登录浏览器、不调用云端 API。
+测试包含实际 bundle 加载、ASR、OAuth/刷新/退出、HTTP 回调、模型列表解析、思考参数以及工作流协议。测试只用模拟数据与 localhost，不用真实账号调用云端。真实账号/接口变化需在本机验证。
 
-当前未用用户账号验证 Google 授权或模型服务；需要用户授权后测试。
+## 许可与参考
 
-产物：build/MiMoASR.bundle、build/MiMoASR-0.2.1.zip。
-最低 macOS 14、仅 arm64、ad-hoc 本机签名，未 Apple 公证。
-升级 TypeWhisper 后应重新检查 SDK 兼容性。
+GPL-3.0，第三方 OAuth 兼容常量的 MIT 声明见 `THIRD_PARTY_NOTICES.md`。
 
-## 卸载 / 回退
-
-退出 TypeWhisper，把下列 bundle 移出 Plugins 再打开应用：
-
-~/Library/Application Support/TypeWhisper/Plugins/MiMoASR.bundle
-
-卸载前可清除 MiMo 密钥、退出 Google，并在 Google 网站撤销授权。
-安装脚本会备份已有 bundle 到 build/backups/，可以恢复旧版 bundle；
-恢复不改变钥匙串中的 MiMo Key。
-
-## 来源
-
-- https://github.com/TypeWhisper/typewhisper-mac/tree/v1.7.1/TypeWhisperPluginSDK
-- https://mimo.mi.com/docs/en/asr/mimo-v2.5-asr
-- https://github.com/shekohex/opencode-google-antigravity-auth（MIT，OAuth 常量与协议参考，见 THIRD_PARTY_NOTICES.md）
-
-参考仓库不属于运行依赖。OpenLess 只曾用于核对 MiMo 协议，未复制其实现。
+- [TypeWhisper SDK](https://github.com/TypeWhisper/typewhisper-mac/tree/v1.7.1/TypeWhisperPluginSDK)
+- [MiMo ASR](https://mimo.mi.com/docs/en/asr/mimo-v2.5-asr)
+- [Antigravity OAuth 协议参考](https://github.com/shekohex/opencode-google-antigravity-auth)

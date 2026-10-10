@@ -73,15 +73,18 @@ enum AntigravityCore {
         request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         // Identify the actual third-party client; do not spoof an IDE version.
-        request.setValue("TypeWhisper-Antigravity/0.2.0", forHTTPHeaderField: "User-Agent")
+        request.setValue("tietiezhi/0.3.0", forHTTPHeaderField: "User-Agent")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request
     }
-    static func generationBody(project: String, model: String, system: String, text: String) -> [String: Any] {
-        ["project": project, "model": model, "userAgent": "antigravity", "requestId": UUID().uuidString,
+    static func generationBody(project: String, model: String, system: String, text: String,
+                               thinking: AntigravityThinking = .auto) -> [String: Any] {
+        var config: [String: Any] = ["temperature": 0.2, "maxOutputTokens": 16384]
+        if let value = thinking.config(for: model) { config["thinkingConfig"] = value }
+        return ["project": project, "model": model, "userAgent": "antigravity", "requestId": UUID().uuidString,
          "request": ["systemInstruction": ["parts": [["text": system]]],
                      "contents": [["role": "user", "parts": [["text": text]]]],
-                     "generationConfig": ["temperature": 0.2, "maxOutputTokens": 8192]]]
+                     "generationConfig": config]]
     }
     static func project(from object: [String: Any]) -> String? {
         if let value = object["cloudaicompanionProject"] as? String, !value.isEmpty { return value }
@@ -127,7 +130,7 @@ struct AntigravityCredentials: Codable, Sendable {
 }
 
 enum AntigravityError: LocalizedError {
-    case notLoggedIn, invalidResponse, invalidCallback, denied, timedOut, browser, noProject, busy, incompleteOutput
+    case notLoggedIn, invalidResponse, invalidCallback, denied, timedOut, browser, noProject, noModels, busy, incompleteOutput
     case http(Int)
     var errorDescription: String? {
         switch self {
@@ -138,6 +141,7 @@ enum AntigravityError: LocalizedError {
         case .timedOut: return "登录超时，请重新点击登录。"
         case .browser: return "无法打开浏览器。"
         case .noProject: return "未找到 Antigravity 项目。请先在官方应用完成初始化，或填写你有权限的项目 ID。"
+        case .noModels: return "账号没有返回可用的文本模型。"
         case .busy: return "已有登录正在进行，请先取消。"
         case .incompleteOutput: return "润色输出被截断或拦截，未返回不完整结果。"
         case .http(400): return "OAuth 或模型请求被拒绝（HTTP 400），请重新登录或检查模型 ID。"

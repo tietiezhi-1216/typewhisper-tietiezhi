@@ -48,7 +48,7 @@ import TypeWhisperPluginSDK
         expect(ranges.count == 2 && ranges.map(\.count).reduce(0, +) == longSamples, "Chunking preserves every sample")
 
         // Load the actual compiled bundle against the installed application's SDK.
-        let url = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("build/MiMoASR.bundle")
+        let url = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("build/tietiezhi.bundle")
         let bundle = Bundle(url: url)!
         try bundle.loadAndReturnError()
         guard let type = NSClassFromString("MiMoASRPlugin") as? any TypeWhisperPlugin.Type,
@@ -72,7 +72,10 @@ import TypeWhisperPluginSDK
         expect(llm.supportedModels.contains(where: { $0.id == AntigravityCore.defaultModel }), "LLM model catalog visible to workflows")
         engine.deactivate()
         expect(!engine.isConfigured && !llm.isAvailable, "Deactivation clears in-memory configuration")
+        guard let effortProvider = engine as? any LLMEffortControllableProvider else { fatalError("Effort protocol missing") }
+        expect(effortProvider.supportedEfforts(for: "gemini-3-flash").contains(where: { $0.id == "low" }), "Actual bundle exposes thinking levels to TypeWhisper workflows")
         try await antigravityTests()
+        try await modelTests()
         try await loopbackTests()
         print("All tests passed. Only offline mocks and loopback HTTP; no real credentials, browser login, or live API calls.")
     }

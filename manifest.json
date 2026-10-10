@@ -1,12 +1,12 @@
 {
   "id": "com.tietiezhi.typewhisper.mimo-asr",
-  "name": "MiMo ASR + Antigravity",
-  "version": "0.2.1",
+  "name": "tietiezhi",
+  "version": "0.3.0",
   "minHostVersion": "1.7.1",
   "sdkCompatibilityVersion": "v1",
   "minOSVersion": "14.0",
   "author": "tietiezhi",
-  "description": "MiMo speech recognition and unofficial Antigravity OAuth text polishing. Google account restrictions may apply.",
+  "description": "MiMo ASR and Antigravity OAuth with model selection and thinking levels.",
   "descriptions": {
     "zh-CN": "小米 MiMo 语音识别与非官方 Antigravity OAuth 润色。存在 Google 账号限制风险。"
   },

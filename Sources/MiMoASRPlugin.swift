@@ -4,15 +4,17 @@ import os
 import TypeWhisperPluginSDK
 
 @objc(MiMoASRPlugin)
-final class MiMoASRPlugin: NSObject, TranscriptionEnginePlugin, LLMProviderPlugin, LLMModelSelectable, @unchecked Sendable {
+final class MiMoASRPlugin: NSObject, TranscriptionEnginePlugin, LLMProviderPlugin, LLMModelSelectable, LLMEffortControllableProvider, @unchecked Sendable {
     static let pluginId = "com.tietiezhi.typewhisper.mimo-asr"
-    static let pluginName = "MiMo ASR + Antigravity"
+    static let pluginName = "tietiezhi"
     private struct State {
         var host: (any HostServices)?
         var key = ""
         var antigravityLoggedIn = false
         var antigravityEmail: String?
         var antigravityModel = AntigravityCore.defaultModel
+        var antigravityModels: [AntigravityModel] = []
+        var thinking: AntigravityThinking = .auto
         var lifecycle = UUID()
     }
     private let state = OSAllocatedUnfairLock(initialState: State())
@@ -29,11 +31,15 @@ final class MiMoASRPlugin: NSObject, TranscriptionEnginePlugin, LLMProviderPlugi
         let key = host.loadSecret(key: "api-key") ?? ""
         let credentials = AntigravityCredentials.decode(host.loadSecret(key: AntigravityCore.secretKey))
         let model = host.userDefault(forKey: "antigravity-model") as? String ?? AntigravityCore.defaultModel
+        let models = (host.userDefault(forKey: "antigravity-models") as? Data).flatMap { try? JSONDecoder().decode([AntigravityModel].self, from: $0) } ?? []
+        let thinking = AntigravityThinking(rawValue: host.userDefault(forKey: "antigravity-thinking") as? String ?? "auto") ?? .auto
         state.withLock {
             $0.host = host; $0.key = key
             $0.antigravityLoggedIn = credentials != nil
             $0.antigravityEmail = credentials?.email
             $0.antigravityModel = model
+            $0.antigravityModels = models
+            $0.thinking = thinking
         }
     }
     func deactivate() {
@@ -89,10 +95,21 @@ final class MiMoASRPlugin: NSObject, TranscriptionEnginePlugin, LLMProviderPlugi
     var antigravityModel: String { state.withLock { $0.antigravityModel } }
     @objc var preferredModelId: String? { antigravityModel }
     @objc var defaultModelId: String? { AntigravityCore.defaultModel }
+    var antigravityModels: [AntigravityModel] { state.withLock { $0.antigravityModels } }
+    var antigravityThinking: AntigravityThinking { state.withLock { $0.thinking } }
     var supportedModels: [PluginModelInfo] {
-        var ids = [AntigravityCore.defaultModel, "gemini-2.5-flash"]
-        if !ids.contains(antigravityModel) { ids.append(antigravityModel) }
-        return ids.map { PluginModelInfo(id: $0, displayName: $0) }
+        let models = antigravityModels
+        if models.isEmpty { return [PluginModelInfo(id: antigravityModel, displayName: antigravityModel)] }
+        return models.map { PluginModelInfo(id: $0.id, displayName: $0.name) }
+    }
+    func supportedEfforts(for model: String?) -> [PluginLLMEffortInfo] {
+        AntigravityThinking.options(for: model ?? antigravityModel).map {
+            PluginLLMEffortInfo(id: $0.rawValue, displayName: $0.title)
+        }
+    }
+    func defaultEffortId(for model: String?) -> String? {
+        let options = AntigravityThinking.options(for: model ?? antigravityModel)
+        return options.contains(antigravityThinking) ? antigravityThinking.rawValue : "auto"
     }
     private func antigravityHost() throws -> any HostServices {
         guard let host = state.withLock({ $0.host }) else { throw AntigravityError.notLoggedIn }
@@ -101,14 +118,29 @@ final class MiMoASRPlugin: NSObject, TranscriptionEnginePlugin, LLMProviderPlugi
     @MainActor var antigravityProject: String {
         (try? antigravityHost().userDefault(forKey: "antigravity-project") as? String) ?? ""
     }
-    @MainActor func saveAntigravityOptions(model: String, project: String) throws {
+    @MainActor func saveAntigravityOptions(model: String, project: String? = nil, thinking: AntigravityThinking? = nil) throws {
         let host = try antigravityHost()
         let model = model.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !model.isEmpty else { throw AntigravityError.invalidResponse }
         host.setUserDefault(model, forKey: "antigravity-model")
-        host.setUserDefault(project.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "antigravity-project")
-        state.withLock { $0.antigravityModel = model }
+        if let project { host.setUserDefault(project.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "antigravity-project") }
+        let selectedThinking = thinking ?? antigravityThinking
+        let resolvedThinking = AntigravityThinking.options(for: model).contains(selectedThinking) ? selectedThinking : .auto
+        host.setUserDefault(resolvedThinking.rawValue, forKey: "antigravity-thinking")
+        state.withLock { $0.antigravityModel = model; $0.thinking = resolvedThinking }
         host.notifyCapabilitiesChanged()
+    }
+    @MainActor func refreshAntigravityModels() async throws {
+        let host = try antigravityHost()
+        let lifecycle = state.withLock { $0.lifecycle }
+        let models = try await antigravity.models(host: host)
+        try Task.checkCancellation()
+        guard state.withLock({ $0.lifecycle == lifecycle }) else { throw CancellationError() }
+        host.setUserDefault(try JSONEncoder().encode(models), forKey: "antigravity-models")
+        state.withLock { $0.antigravityModels = models }
+        let selected = models.contains(where: { $0.id == antigravityModel }) ? antigravityModel :
+            (models.first(where: { $0.id.contains("flash") })?.id ?? models[0].id)
+        try saveAntigravityOptions(model: selected)
     }
     @MainActor func loginAntigravity() async throws {
         let host = try antigravityHost()
@@ -126,8 +158,12 @@ final class MiMoASRPlugin: NSObject, TranscriptionEnginePlugin, LLMProviderPlugi
         host.notifyCapabilitiesChanged()
     }
     func process(systemPrompt: String, userText: String, model: String?) async throws -> String {
+        try await process(systemPrompt: systemPrompt, userText: userText, model: model, effort: nil)
+    }
+    func process(systemPrompt: String, userText: String, model: String?, effort: String?) async throws -> String {
         let host = try antigravityHost()
-        return try await antigravity.generate(host: host, model: model ?? antigravityModel, system: systemPrompt, text: userText)
+        let thinking = effort.flatMap(AntigravityThinking.init(rawValue:)) ?? antigravityThinking
+        return try await antigravity.generate(host: host, model: model ?? antigravityModel, system: systemPrompt, text: userText, thinking: thinking)
     }
 
     @MainActor var settingsView: AnyView? { AnyView(MiMoSettingsView(plugin: self)) }
@@ -140,41 +176,30 @@ private struct MiMoSettingsView: View {
     @State private var failed = false
     var body: some View {
         Form {
-            Section("小米 MiMo 语音识别") {
-                Text("模型：mimo-v2.5-asr · 中文 / 英文 / 自动检测")
-                Text("录音将发送至小米云端，并按 API 规则计费。不需要下载模型。")
-                    .font(.caption).foregroundStyle(.secondary)
-                Link("打开 MiMo 开放平台", destination: URL(string: "https://platform.xiaomimimo.com")!)
-            }
-            Section("API Key") {
-                SecureField("输入或替换 API Key", text: $key)
+            Section("MiMo") {
+                SecureField("API Key", text: $key)
                 HStack {
-                    Button("保存密钥") {
+                    Button("保存") {
                         do {
                             try plugin.saveKey(key)
-                            key = ""; failed = false; status = "密钥已保存到系统钥匙串。"
+                            key = ""; failed = false; status = "已保存"
                         } catch {
                             failed = true; status = "保存失败：" + error.localizedDescription
                         }
                     }.disabled(key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    Button("清除密钥", role: .destructive) {
+                    Button("清除", role: .destructive) {
                         do {
                             try plugin.saveKey("")
-                            key = ""; failed = false; status = "已清除密钥。"
+                            key = ""; failed = false; status = "已清除"
                         } catch {
                             failed = true; status = "清除失败：" + error.localizedDescription
                         }
                     }
                 }
-                Text(status.isEmpty ? (plugin.isConfigured ? "已配置密钥（不会回显）。" : "尚未配置密钥。") : status)
+                Text(status.isEmpty ? (plugin.isConfigured ? "已配置" : "未配置") : status)
                     .font(.caption).foregroundStyle(failed ? Color.red : Color.secondary)
             }
             AntigravitySettingsSection(plugin: plugin)
-            Section("使用说明") {
-                Text("保存后，在 TypeWhisper 的模型选择中选 MiMo V2.5 ASR。停止录音后返回文字，不提供实时字幕或翻译。")
-                Text("跟随应用的语言选择；其他语言按自动检测处理。超过 3 分钟的录音自动分段，段落边界可能影响识别。")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-        }.formStyle(.grouped).frame(minWidth: 480, minHeight: 580)
+        }.formStyle(.grouped).frame(minWidth: 420, minHeight: 340)
     }
 }

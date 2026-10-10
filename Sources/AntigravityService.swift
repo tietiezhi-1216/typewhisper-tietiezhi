@@ -103,7 +103,21 @@ actor AntigravityService {
         defer { if expected == epoch { refreshTask = nil } }
         return try await task.value
     }
-    func generate(host: any HostServices, model: String, system: String, text: String) async throws -> String {
+    func models(host: any HostServices) async throws -> [AntigravityModel] {
+        guard !loginRunning else { throw AntigravityError.busy }
+        let expected = epoch
+        let credentials = try await credentials(host: host)
+        try checkEpoch(expected)
+        let override = (host.userDefault(forKey: "antigravity-project") as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let project = override.isEmpty ? credentials.projectID : override
+        guard !project.isEmpty else { throw AntigravityError.noProject }
+        let request = try AntigravityCore.apiRequest(action: "fetchAvailableModels", token: credentials.accessToken, body: ["project": project])
+        let response = try await json(request, stage: .models)
+        try checkEpoch(expected)
+        return try AntigravityCatalog.parse(response)
+    }
+    func generate(host: any HostServices, model: String, system: String, text: String,
+                  thinking: AntigravityThinking = .auto) async throws -> String {
         guard !loginRunning else { throw AntigravityError.busy }
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return "" }
         let expected = epoch
@@ -112,7 +126,7 @@ actor AntigravityService {
         let override = (host.userDefault(forKey: "antigravity-project") as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let project = override.isEmpty ? credentials.projectID : override
         guard !project.isEmpty else { throw AntigravityError.noProject }
-        let body = AntigravityCore.generationBody(project: project, model: model, system: system, text: text)
+        let body = AntigravityCore.generationBody(project: project, model: model, system: system, text: text, thinking: thinking)
         let response = try await json(AntigravityCore.apiRequest(action: "generateContent", token: credentials.accessToken, body: body), stage: .generate)
         try checkEpoch(expected)
         return try AntigravityCore.generatedText(response)

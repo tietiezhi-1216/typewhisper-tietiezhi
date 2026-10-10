@@ -1,0 +1,33 @@
+name: Build and test
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned TypeWhisper host
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download v1.7.1 --repo TypeWhisper/typewhisper-mac --pattern 'TypeWhisper-v1.7.1.zip' --dir /tmp/typewhisper-host
+          ditto -x -k /tmp/typewhisper-host/TypeWhisper-v1.7.1.zip /tmp/typewhisper-host/unpacked
+          APP=$(find /tmp/typewhisper-host/unpacked -name TypeWhisper.app -print -quit)
+          test -n "$APP"
+          ditto "$APP" /Applications/TypeWhisper.app
+      - name: Build universal plugin
+        run: ./build.sh
+      - name: Offline and loopback tests
+        run: ./test.sh
+      - name: Package
+        run: ./package.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tietiezhi-macos-universal
+          path: |
+            build/tietiezhi-*-macos-universal.zip
+            build/tietiezhi-*-macos-universal.zip.sha256

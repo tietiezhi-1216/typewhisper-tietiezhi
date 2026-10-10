@@ -2,104 +2,125 @@ import SwiftUI
 
 struct AntigravitySettingsSection: View {
     let plugin: MiMoASRPlugin
-    @State private var acceptedRisk = false
-    @State private var loginTask: Task<Void, Never>?
-    @State private var testTask: Task<Void, Never>?
-    @State private var working = false
-    @State private var testing = false
+    @State private var task: Task<Void, Never>?
+    @State private var busy = false
     @State private var status = ""
     @State private var failed = false
     @State private var signedIn = false
     @State private var model = AntigravityCore.defaultModel
+    @State private var models: [AntigravityModel] = []
+    @State private var thinking = AntigravityThinking.auto
     @State private var project = ""
-    @State private var preview = ""
+    @State private var confirmLogin = false
 
     var body: some View {
-        Section("Antigravity OAuth 润色（非官方）") {
-            Text("Google 条款禁止第三方调用 Antigravity，可能导致账号暂停或终止。授权可被拒绝，接口也可能随时失效。")
-                .font(.caption).foregroundStyle(.orange)
-            Text("使用社区公开的桌面 OAuth 客户端，授权页名称可能不是 TypeWhisper。会申请 Google Cloud 等权限，请仔细查看授权范围。")
-                .font(.caption).foregroundStyle(.secondary)
-            Link("查看 Google 条款", destination: URL(string: "https://antigravity.google/terms")!)
-            Toggle("我理解风险，仍希望使用非官方接入", isOn: $acceptedRisk)
-                .font(.caption)
+        Section("Antigravity") {
             HStack {
-                Button(signedIn ? "重新登录 Google" : "登录 Google / Antigravity") {
-                    working = true; status = "请在浏览器中完成授权（3 分钟内）。"; failed = false
-                    loginTask = Task { @MainActor in
-                        defer { working = false; loginTask = nil }
-                        do {
-                            try plugin.saveAntigravityOptions(model: model, project: project)
-                            try await plugin.loginAntigravity()
-                            signedIn = plugin.isAvailable
-                            status = "授权已保存。请点击测试润色，确认模型可调用。"
-                        } catch is CancellationError { status = "登录已取消。" }
-                        catch { failed = true; status = error.localizedDescription }
-                    }
-                }.disabled(!acceptedRisk || working || testing)
-                if working {
-                    ProgressView().controlSize(.small)
-                    Button("取消") { loginTask?.cancel() }
-                }
+                Button(signedIn ? "重新登录" : "登录") { confirmLogin = true }
                 if signedIn {
-                    Button("本地退出", role: .destructive) {
-                        loginTask?.cancel(); testTask?.cancel()
-                        Task { @MainActor in
-                            do {
-                                try await plugin.logoutAntigravity()
-                                signedIn = false; preview = ""; failed = false
-                                status = "本插件的凭据已清除。远端授权需在 Google 账号页面撤销。"
-                            } catch { failed = true; status = error.localizedDescription }
+                    Button("退出") {
+                        run {
+                            try await plugin.logoutAntigravity()
+                            signedIn = false
+                            status = "已退出"
                         }
-                    }.disabled(working || testing)
+                    }
+                    Button("刷新模型") { refresh() }
+                    Button("测试") {
+                        run {
+                            let text = try await plugin.process(systemPrompt: AntigravityCore.polishPrompt,
+                                userText: "嗯，今天下午三点开会，请大家准时参加。", model: model)
+                            status = text
+                        }
+                    }
                 }
-            }
+                if busy { ProgressView().controlSize(.small) }
+            }.disabled(busy)
+            if busy { Button("取消") { task?.cancel() } }
             if signedIn {
-                Text("已授权：" + (plugin.antigravityEmail ?? "Google 账号"))
-                    .font(.caption).foregroundStyle(.secondary)
+                Picker("模型", selection: $model) {
+                    if models.isEmpty {
+                        Text("请刷新模型列表").tag(model)
+                    } else {
+                        ForEach(models) { item in Text(item.name).tag(item.id) }
+                    }
+                }.disabled(models.isEmpty || busy)
+                Picker("思考等级", selection: $thinking) {
+                    ForEach(AntigravityThinking.options(for: model), id: \.self) { item in
+                        Text(item.title).tag(item)
+                    }
+                }.disabled(busy || AntigravityThinking.options(for: model).count < 2)
             }
             if !status.isEmpty {
                 Text(status).font(.caption).foregroundStyle(failed ? Color.red : Color.secondary)
                     .textSelection(.enabled)
             }
-            TextField("润色模型 ID", text: $model)
-            Text("默认尝试 gemini-3-flash；模型是否可用以你的账号和测试结果为准。可以填写其他 Gemini 文本模型 ID。")
-                .font(.caption).foregroundStyle(.secondary)
-            TextField("项目 ID（可选；优先自动发现）", text: $project)
-            HStack {
-                Button("保存模型 / 项目") {
-                    do {
-                        try plugin.saveAntigravityOptions(model: model, project: project)
-                        failed = false; status = "模型和项目选项已保存。"
-                    } catch { failed = true; status = error.localizedDescription }
-                }.disabled(working || testing)
-                Button("测试润色") {
-                    testing = true; failed = false; status = "正在发送一段固定测试文本……"
-                    testTask = Task { @MainActor in
-                        defer { testing = false; testTask = nil }
-                        do {
-                            try plugin.saveAntigravityOptions(model: model, project: project)
-                            preview = try await plugin.process(systemPrompt: AntigravityCore.polishPrompt,
-                                userText: "嗯，那个，今天下午三点开会，今天下午三点开会，请大家准时参加。", model: model)
-                            status = "测试成功。请在工作流里选择 Antigravity OAuth（非官方）进行润色。"
-                        } catch is CancellationError { status = "测试已取消。" }
-                        catch { failed = true; status = error.localizedDescription }
-                    }
-                }.disabled(!signedIn || !acceptedRisk || working || testing)
-                if testing { ProgressView().controlSize(.small); Button("取消测试") { testTask?.cancel() } }
+            DisclosureGroup("高级") {
+                TextField("项目 ID（可选）", text: $project)
+                    .onSubmit { save() }
+                Button("保存项目") { save() }.disabled(busy)
+                Link("撤销 Google 授权", destination: URL(string: "https://myaccount.google.com/connections")!)
+                Link("非官方接入 · 使用条款", destination: URL(string: "https://antigravity.google/terms")!)
             }
-            if !preview.isEmpty { Text(preview).font(.caption).textSelection(.enabled) }
-            Link("管理 / 撤销 Google 授权", destination: URL(string: "https://myaccount.google.com/connections")!)
-            Text("登录不代表模型已经可用。此插件不会自动开通项目、切换账号或绕过限制；凭据与 MiMo 密钥分别保存在钥匙串。")
-                .font(.caption).foregroundStyle(.secondary)
-            Text("自动润色：设置 → 工作流，为听写添加文本整理流程，并选择此 LLM 提供商。仅登录不会自动改写所有听写。")
-                .font(.caption).foregroundStyle(.secondary)
         }
+        .alert("Antigravity 非官方接入", isPresented: $confirmLogin) {
+            Button("取消", role: .cancel) {}
+            Button("继续登录") {
+                run {
+                    try plugin.saveAntigravityOptions(model: model, project: project, thinking: thinking)
+                    try await plugin.loginAntigravity()
+                    signedIn = true
+                    // Login and model discovery are distinct, so catalog failure
+                    // must not make a successful login appear to have failed.
+                    do {
+                        try await plugin.refreshAntigravityModels()
+                        reload()
+                        status = ""
+                    } catch is CancellationError { throw CancellationError() }
+                    catch { failed = true; status = "已登录；" + error.localizedDescription }
+                }
+            }
+        } message: {
+            Text("可能导致 Google 账号受限。授权使用社区桌面客户端，包含 Google Cloud 权限。是否继续？")
+        }
+        .onChange(of: model) { _, _ in
+            if !AntigravityThinking.options(for: model).contains(thinking) { thinking = .auto }
+            save()
+        }
+        .onChange(of: thinking) { _, _ in save() }
         .onAppear {
-            signedIn = plugin.isAvailable
-            model = plugin.antigravityModel
+            reload()
             project = plugin.antigravityProject
+            if signedIn { refresh() }
         }
-        .onDisappear { loginTask?.cancel(); testTask?.cancel() }
+        .onDisappear { task?.cancel() }
+    }
+
+    private func reload() {
+        signedIn = plugin.isAvailable
+        models = plugin.antigravityModels
+        model = plugin.antigravityModel
+        thinking = plugin.antigravityThinking
+    }
+    private func save() {
+        do { try plugin.saveAntigravityOptions(model: model, project: project, thinking: thinking) }
+        catch { failed = true; status = error.localizedDescription }
+    }
+    private func refresh() {
+        run {
+            try await plugin.refreshAntigravityModels()
+            reload()
+            status = ""
+        }
+    }
+    private func run(_ operation: @escaping @MainActor () async throws -> Void) {
+        guard !busy else { return }
+        busy = true; failed = false; status = ""
+        task = Task { @MainActor in
+            defer { busy = false; task = nil; signedIn = plugin.isAvailable }
+            do { try await operation() }
+            catch is CancellationError { status = "已取消" }
+            catch { failed = true; status = error.localizedDescription }
+        }
     }
 }
