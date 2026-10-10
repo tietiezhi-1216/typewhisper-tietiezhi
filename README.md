@@ -1,8 +1,8 @@
 # tietiezhi
 
-TypeWhisper 原生 macOS 插件：**MiMo ASR + Antigravity OAuth 润色**。
+TypeWhisper 原生 macOS 插件：**MiMo ASR + Antigravity OAuth 润色 + 组合键快捷启动**。
 
-设置页只有 MiMo API Key、Antigravity 登录、模型与思考等级。登录后自动获取账号的文本模型列表，也可手动刷新。不需要手填项目 ID，不初始化 Cloud 项目。
+设置页包含 MiMo API Key、快捷启动、Antigravity 登录、模型与思考等级及更新按钮。登录后自动获取账号的文本模型列表，也可手动刷新。不需要手填项目 ID，不初始化 Cloud 项目。
 
 > Antigravity 是非官方接入，可能被拒绝或导致账号受限：[Google 条款](https://antigravity.google/terms)。登录不保证模型调用成功。
 
@@ -11,7 +11,7 @@ TypeWhisper 原生 macOS 插件：**MiMo ASR + Antigravity OAuth 润色**。
 支持 **Apple Silicon 与 Intel、macOS 14+**。需要安装 **TypeWhisper 1.7.1+**，已验证版本为 1.7.1；后续宿主版本仍需兼容性验证。不是 Windows/iPhone 插件。
 
 1. 打开本仓库的 **Releases**（公开下载，无需 GitHub 登录）。
-2. 下载 `tietiezhi-0.4.1-macos-universal.zip` 并解压。
+2. 下载 `tietiezhi-0.5.0-macos-universal.zip` 并解压。
 3. 在终端进入解压后的目录，运行：
 
    ```sh
@@ -26,6 +26,20 @@ TypeWhisper 原生 macOS 插件：**MiMo ASR + Antigravity OAuth 润色**。
 也可通过 TypeWhisper 的“安装插件”选择解压后的 `tietiezhi.bundle`。升级旧版时推荐用脚本，避免同时保留两个同 ID 的 bundle。
 
 **每台设备分别填写 Key、登录 Google。安装包与 GitHub 不包含用户密钥或 Token。**
+
+## 组合键快捷启动
+
+打开插件设置的 **快捷启动** 区域。检测到已安装微信时，会出现默认关闭的 `⌃W → 微信`：打开启用开关后，按 **Control + W** 即可打开或切换到微信；这不是 Command + W。
+
+- **测试**：打开所选应用，用于确认目标正常，不要求启用组合键。
+- **编辑**：更换应用、录入新组合键并选择是否启用。
+- **添加快捷启动**：选择 `.app` → 录入组合键 → 勾选启用 → 保存。最多 20 条。
+- 录入时先暂时释放本插件的快捷启动组合键，Esc 可取消。必须包含 Control、Option 或 Command，不支持单独修饰键。
+- 只在 TypeWhisper 运行且本插件启用时生效；停用插件或退出宿主会释放快捷键。配置自动保存，重启恢复已启用条目。
+- 使用 Carbon 原生组合键注册和 LaunchServices，不捕获全部键盘输入、不发送模拟按键、不执行 shell 或大模型命令，不需要辅助功能权限，也不依赖 MiMo Key/Google 登录。
+- 重复组合键会被拒绝；系统注册占用会显示失败。不保证识别所有软件通过事件监控实现的快捷键，请避开宿主工作流和第三方快捷键。启用 `⌃W` 会占用它原本的功能，建议按需要改为 `⌃⌥W`。
+
+升级后必须通过菜单栏 **TypeWhisper → 退出** 再重开，不能只关设置窗口；旧动态库不会在运行过程中卸载换新。
 
 ## 插件内更新
 
@@ -94,7 +108,7 @@ cd typewhisper-tietiezhi
 构建自动取得固定 v1.7.1 SDK 源码，只生成编译元数据，运行时链接宿主框架。
 安装包是 arm64/x86_64 Universal，构建时校验两种架构的 SDK 导入符号。
 
-测试包含实际 bundle 加载、ASR、OAuth/刷新/退出、HTTP 回调、模型列表解析、思考参数以及工作流协议。测试只用模拟数据与 localhost，不用真实账号调用云端。真实账号/接口变化需在本机验证。
+测试包含实际 bundle 加载、ASR、OAuth/刷新/退出、HTTP 回调、模型列表解析、思考参数、工作流协议、临时目录内的更新安装，以及真实 Carbon 注册/事件派发/冲突/释放。应用启动派发使用注入的测试目标，不打开真实应用或模拟键盘输入，不用真实账号调用 AI 云端；真实按键与应用窗口行为需在本机确认。
 
 ## 两个独立插件仓库
 

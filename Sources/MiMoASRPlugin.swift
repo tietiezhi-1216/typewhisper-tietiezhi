@@ -16,12 +16,25 @@ final class MiMoASRPlugin: NSObject, TranscriptionEnginePlugin, LLMProviderPlugi
         var antigravityModels: [AntigravityModel] = []
         var thinking: AntigravityThinking = .auto
         var lifecycle = UUID()
+        var shortcutLifecycle = UUID()
     }
     private let state = OSAllocatedUnfairLock(initialState: State())
     private let antigravity = AntigravityService()
     let updater = PluginUpdateService()
+    @MainActor private var shortcutController: AppShortcutController?
+    @MainActor var appShortcuts: AppShortcutController {
+        let controller = shortcutController ?? AppShortcutController()
+        shortcutController = controller
+        if let host = state.withLock({ $0.host }) {
+            let identity = state.withLock { $0.shortcutLifecycle }
+            controller.attach(host: host, identity: identity, active: { [weak self] in
+                self?.state.withLock { $0.host != nil && $0.shortcutLifecycle == identity } ?? false
+            })
+        }
+        return controller
+    }
     var installedPluginBundle: Bundle { Bundle(for: MiMoASRPlugin.self) }
-    var installedPluginVersion: String { installedPluginBundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.4.1" }
+    var installedPluginVersion: String { installedPluginBundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.5.0" }
     // No cookies/cache, no audio or transcript logs. No automatic paid retries.
     private let session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
@@ -37,6 +50,8 @@ final class MiMoASRPlugin: NSObject, TranscriptionEnginePlugin, LLMProviderPlugi
         let models = (host.userDefault(forKey: AntigravityCore.catalogKey) as? Data).flatMap { try? JSONDecoder().decode([AntigravityModel].self, from: $0) } ?? []
         let thinking = AntigravityThinking(rawValue: host.userDefault(forKey: "antigravity-thinking") as? String ?? "auto") ?? .auto
         state.withLock {
+            $0.lifecycle = UUID()
+            $0.shortcutLifecycle = UUID()
             $0.host = host; $0.key = key
             $0.antigravityLoggedIn = credentials != nil
             $0.antigravityEmail = credentials?.email
@@ -44,9 +59,22 @@ final class MiMoASRPlugin: NSObject, TranscriptionEnginePlugin, LLMProviderPlugi
             $0.antigravityModels = models
             $0.thinking = thinking
         }
+        let identity = state.withLock { $0.shortcutLifecycle }
+        Task { @MainActor [weak self] in
+            guard let self, self.state.withLock({ $0.shortcutLifecycle == identity && $0.host != nil }) else { return }
+            _ = self.appShortcuts
+        }
     }
     func deactivate() {
-        state.withLock { $0 = State() }
+        let identity = state.withLock { $0 = State(); return $0.shortcutLifecycle }
+        if Thread.isMainThread {
+            MainActor.assumeIsolated { shortcutController?.stop() }
+        } else {
+            Task { @MainActor [weak self] in
+                guard let self, self.state.withLock({ $0.shortcutLifecycle == identity }) else { return }
+                self.shortcutController?.stop()
+            }
+        }
         Task { await antigravity.invalidate() }
     }
     var providerId: String { "xiaomi-mimo-asr" }
@@ -208,6 +236,7 @@ private struct MiMoSettingsView: View {
                 Text(status.isEmpty ? (plugin.isConfigured ? "已配置" : "未配置") : status)
                     .font(.caption).foregroundStyle(failed ? Color.red : Color.secondary)
             }
+            AppShortcutSection(controller: plugin.appShortcuts)
             AntigravitySettingsSection(plugin: plugin)
             PluginUpdateSection(plugin: plugin)
         }.formStyle(.grouped).frame(minWidth: 420, minHeight: 340)

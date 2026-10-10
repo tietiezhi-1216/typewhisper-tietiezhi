@@ -88,7 +88,8 @@ import TypeWhisperPluginSDK
         try await routingTests()
         try streamTests()
         try await updateTests()
+        try shortcutTests()
         try await loopbackTests()
-        print("All tests passed. Only offline mocks and loopback HTTP; no real credentials, browser login, or live API calls.")
+        print("All tests passed. Offline/mock, loopback HTTP and native local update/hotkey tests; no real credentials, browser login, live AI API calls or synthesized keyboard input.")
     }
 }

@@ -37,7 +37,9 @@ extension Tests {
         for value in ["v1.2.3", "1.2", "1.2.3-beta", "-1.2.3", "1..3", "١.2.3"] {
             expect(PluginVersion(value) == nil, "Reject unsafe/non-stable version: \(value)")
         }
-        let version = "0.4.1", root = "tietiezhi-" + version
+        let manifestData = try Data(contentsOf: URL(fileURLWithPath: "manifest.json"))
+        let currentManifest = try JSONSerialization.jsonObject(with: manifestData) as! [String: Any]
+        let version = currentManifest["version"] as! String, root = "tietiezhi-" + version
         let package = try Data(contentsOf: URL(fileURLWithPath: "build/tietiezhi-\(version)-macos-universal.zip"))
         let fixture = updateFixture(version: version, size: package.count)
         let release = try PluginRelease.parse(JSONSerialization.data(withJSONObject: fixture), current: "0.4.0")!
