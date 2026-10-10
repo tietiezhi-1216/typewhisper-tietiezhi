@@ -37,15 +37,9 @@ actor AntigravityService {
         try Task.checkCancellation()
         guard expected == epoch else { throw CancellationError() }
     }
-    // Never rotate accounts/endpoints in response to an authorization denial or
-    // quota limit. Read-only metadata compatibility probes may try another
-    // documented endpoint after a missing method, server failure or timeout.
-    private func canProbeAnotherEndpoint(_ error: any Error) -> Bool {
-        if error is CancellationError { return false }
-        if let http = error as? AntigravityHTTPError { return [404, 405, 408, 500, 502, 503, 504].contains(http.status) }
-        if let network = error as? URLError { return network.code != .cancelled }
-        return error is AntigravityError || error is DecodingError
-    }
+    // Read-only discovery queries its three documented sources once, independently.
+    // Endpoint-local failures do not erase valid results from another source.
+    // Generation never retries or switches accounts/endpoints after denial.
     func invalidate() {
         epoch += 1
         refreshTask?.cancel(); refreshTask = nil
@@ -90,21 +84,32 @@ actor AntigravityService {
         try host.storeSecret(key: AntigravityCore.secretKey, value: credentials.encoded())
         return credentials
     }
+    private func project(endpoint: String, action: String, access: String) async throws -> String? {
+        let body: [String: Any] = action == "loadCodeAssist" ? ["metadata": ["ideType": "ANTIGRAVITY"]] : [:]
+        let response = try await json(AntigravityCore.apiRequest(action: action, token: access, body: body, endpoint: endpoint), stage: .project)
+        return AntigravityCore.project(from: response)
+    }
     private func discoverProject(access: String) async throws -> String? {
         let expected = epoch
         for action in ["loadCodeAssist", "listCloudAICompanionProjects"] {
-            for endpoint in AntigravityCore.endpoints {
-                do {
-                    let body: [String: Any] = action == "loadCodeAssist" ? ["metadata": ["ideType": "ANTIGRAVITY"]] : [:]
-                    let response = try await json(AntigravityCore.apiRequest(action: action, token: access, body: body, endpoint: endpoint), stage: .project)
-                    try checkEpoch(expected)
-                    if let project = AntigravityCore.project(from: response) { return project }
-                    break // A valid empty response moves on to the project-list method.
-                } catch {
-                    try checkEpoch(expected)
-                    if !canProbeAnotherEndpoint(error) { return nil }
+            let results = await withTaskGroup(of: (Int, Result<String?, any Error>).self) { group in
+                for (index, endpoint) in AntigravityCore.endpoints.enumerated() {
+                    group.addTask {
+                        do { return (index, .success(try await self.project(endpoint: endpoint, action: action, access: access))) }
+                        catch { return (index, .failure(error)) }
+                    }
                 }
+                var results: [(Int, Result<String?, any Error>)] = []
+                for await result in group { results.append(result) }
+                return results.sorted { $0.0 < $1.0 }
             }
+            try checkEpoch(expected)
+            var hadSuccess = false
+            for (_, result) in results {
+                if case .success(let project) = result { hadSuccess = true; if let project { return project } }
+            }
+            // Like Pi, list projects only after a successful but empty assist lookup.
+            if !hadSuccess { return nil }
         }
         return nil
     }
@@ -157,25 +162,49 @@ actor AntigravityService {
         projectCheckedUntil = Date().addingTimeInterval(1800)
         return current
     }
+    private func catalog(endpoint: String, credentials: AntigravityCredentials) async throws -> [AntigravityModel] {
+        let response = try await json(AntigravityCore.apiRequest(action: "fetchAvailableModels", token: credentials.accessToken,
+            body: ["project": credentials.projectID], endpoint: endpoint), stage: .models)
+        return try AntigravityCatalog.parse(response, endpoint: endpoint)
+    }
     func models(host: any HostServices) async throws -> [AntigravityModel] {
         guard !loginRunning else { throw AntigravityError.busy }
         let expected = epoch
         let credentials = try await routedCredentials(host: host)
         try checkEpoch(expected)
-        var catalogs: [[AntigravityModel]] = [], lastError: (any Error)?
-        for endpoint in AntigravityCore.endpoints {
-            do {
-                let response = try await json(AntigravityCore.apiRequest(action: "fetchAvailableModels", token: credentials.accessToken, body: ["project": credentials.projectID], endpoint: endpoint), stage: .models)
-                try checkEpoch(expected)
-                catalogs.append(try AntigravityCatalog.parse(response, endpoint: endpoint))
-            } catch {
-                try checkEpoch(expected)
-                lastError = error
-                if !canProbeAnotherEndpoint(error) { throw error }
+        let results = await withTaskGroup(of: (Int, Result<[AntigravityModel], any Error>).self) { group in
+            for (index, endpoint) in AntigravityCore.endpoints.enumerated() {
+                group.addTask {
+                    do {
+                        return (index, .success(try await self.catalog(endpoint: endpoint, credentials: credentials)))
+                    } catch { return (index, .failure(error)) }
+                }
+            }
+            var results: [(Int, Result<[AntigravityModel], any Error>)] = []
+            for await result in group { results.append(result) }
+            return results.sorted { $0.0 < $1.0 }
+        }
+        try checkEpoch(expected)
+        var catalogs: [[AntigravityModel]] = [], failures: [any Error] = [], diagnostics: [String] = []
+        let labels = ["daily", "sandbox", "production"]
+        for (index, result) in results {
+            switch result {
+            case .success(let models): catalogs.append(models); diagnostics.append(labels[index] + "=OK")
+            case .failure(let error):
+                failures.append(error)
+                if let http = error as? AntigravityHTTPError {
+                    diagnostics.append(labels[index] + "=HTTP " + String(http.status))
+                    if http.status == 401 || http.status == 429 { throw http }
+                } else { diagnostics.append(labels[index] + "=不可用") }
             }
         }
         let models = AntigravityCatalog.merge(catalogs)
-        guard !models.isEmpty else { throw lastError ?? AntigravityError.noModels }
+        if models.isEmpty {
+            if let http = failures.compactMap({ $0 as? AntigravityHTTPError }).first(where: { $0.status == 403 }) {
+                throw AntigravityHTTPError(status: http.status, stage: .models, diagnostic: http.diagnostic + "\n目录端点：" + diagnostics.joined(separator: "；"))
+            }
+            throw failures.first ?? AntigravityError.noModels
+        }
         return models
     }
     func generate(host: any HostServices, model: String, system: String, text: String,

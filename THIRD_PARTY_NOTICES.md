@@ -5,7 +5,8 @@ adapted from https://github.com/shekohex/opencode-google-antigravity-auth.
 The Swift implementation is native and independent; it does not invoke Pi or
 reuse any user's Pi credentials. No account rotation or restriction-bypass
 mechanisms are included. Read-only discovery probes fixed Google endpoints;
-authorization and quota denials do not trigger endpoint retries.
+each source is queried once without failure retries. Generation does not retry
+or switch endpoints/accounts after authorization or quota denial.
 
 MIT License
 

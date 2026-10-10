@@ -11,5 +11,5 @@ ZIP="build/tietiezhi-$VERSION-macos-universal.zip"
 # Avoid including stale archive entries on repeated packaging.
 rm -f "$ZIP"
 ditto -c -k --sequesterRsrc --keepParent "$ROOT" "$ZIP"
-shasum -a 256 "$ZIP" > "$ZIP.sha256"
+(cd build && shasum -a 256 "$(basename "$ZIP")") > "$ZIP.sha256"
 echo "$ZIP"

@@ -54,19 +54,28 @@ extension Tests {
         let host = TestHost()
         let credentials = AntigravityCredentials(accessToken: "fake", refreshToken: "fake", expiresAt: Date().addingTimeInterval(3600), projectID: "managed-project")
         try host.storeSecret(key: AntigravityCore.secretKey, value: credentials.encoded())
-        let mock = MockTransport([
-            (200, piCatalog), (404, "{}"),
-            (200, #"{"models":{"gemini-3.8-flash-high":{"displayName":"Gemini 3.8 Flash (High)"},"gemini-3.7-flash-low":{"displayName":"Gemini 3.7 Flash (Low)"}}}"#)
+        let mock = MockTransport(perHost: [
+            "daily-cloudcode-pa.googleapis.com": [(200, piCatalog)],
+            "daily-cloudcode-pa.sandbox.googleapis.com": [(403, "{}")],
+            "cloudcode-pa.googleapis.com": [(200, #"{"models":{"gemini-3.8-flash-high":{"displayName":"Gemini 3.8 Flash (High)"},"gemini-3.7-flash-low":{"displayName":"Gemini 3.7 Flash (Low)"}}}"#)]
         ])
         let service = AntigravityService(transport: { try await mock.send($0) })
         let fetched = try await service.models(host: host)
-        expect(fetched.contains { $0.id == "gemini-3.7-flash" }, "Merge catalogs across documented endpoints")
+        expect(fetched.contains { $0.id == "gemini-3.7-flash" }, "Merge successful catalogs even when sandbox returns 403")
         expect(fetched.first { $0.id == "gemini-3.8-flash" }?.route(.high).endpoint == AntigravityCore.endpoint, "Duplicate routing keeps primary endpoint")
         expect(fetched.first { $0.id == "gemini-3.7-flash" }?.route(.auto).endpoint == AntigravityCore.endpoints[2], "Endpoint-specific runtime retains source")
         let requests = await mock.allRequests()
         let body = try JSONSerialization.jsonObject(with: requests[0].httpBody!) as! [String: Any]
         expect(requests.count == 3 && body["project"] as? String == "managed-project", "Catalog probes use account project and three fixed endpoints")
         expect(requests[0].timeoutInterval == 8 && requests[0].value(forHTTPHeaderField: "Authorization") == "Bearer fake", "Bound metadata probes and authenticate")
+        let productionMock = MockTransport(perHost: [
+            "daily-cloudcode-pa.googleapis.com": [(403, "{}")],
+            "daily-cloudcode-pa.sandbox.googleapis.com": [(403, "{}")],
+            "cloudcode-pa.googleapis.com": [(200, piCatalog)]
+        ])
+        let productionService = AntigravityService(transport: { try await productionMock.send($0) })
+        let productionModels = try await productionService.models(host: host)
+        expect(productionModels.first { $0.id == "gemini-3.8-flash" }?.route(.high).endpoint == AntigravityCore.endpoints[2], "Daily/sandbox denial does not discard an authorized production catalog")
         try host.setCatalog(fetched)
         let generationMock = MockTransport([(200, #"{"response":{"candidates":[{"finishReason":"STOP","content":{"parts":[{"text":"done"}]}}]}}"#)])
         let generator = AntigravityService(transport: { try await generationMock.send($0) })

@@ -19,6 +19,9 @@ final class MiMoASRPlugin: NSObject, TranscriptionEnginePlugin, LLMProviderPlugi
     }
     private let state = OSAllocatedUnfairLock(initialState: State())
     private let antigravity = AntigravityService()
+    let updater = PluginUpdateService()
+    var installedPluginBundle: Bundle { Bundle(for: MiMoASRPlugin.self) }
+    var installedPluginVersion: String { installedPluginBundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.4.1" }
     // No cookies/cache, no audio or transcript logs. No automatic paid retries.
     private let session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
@@ -206,6 +209,7 @@ private struct MiMoSettingsView: View {
                     .font(.caption).foregroundStyle(failed ? Color.red : Color.secondary)
             }
             AntigravitySettingsSection(plugin: plugin)
+            PluginUpdateSection(plugin: plugin)
         }.formStyle(.grouped).frame(minWidth: 420, minHeight: 340)
     }
 }

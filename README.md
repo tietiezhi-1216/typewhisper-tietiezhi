@@ -10,8 +10,8 @@ TypeWhisper 原生 macOS 插件：**MiMo ASR + Antigravity OAuth 润色**。
 
 支持 **Apple Silicon 与 Intel、macOS 14+**。需要安装 **TypeWhisper 1.7.1+**，已验证版本为 1.7.1；后续宿主版本仍需兼容性验证。不是 Windows/iPhone 插件。
 
-1. 登录 GitHub，打开本仓库的 **Releases**。
-2. 下载 `tietiezhi-0.4.0-macos-universal.zip` 并解压。
+1. 打开本仓库的 **Releases**（公开下载，无需 GitHub 登录）。
+2. 下载 `tietiezhi-0.4.1-macos-universal.zip` 并解压。
 3. 在终端进入解压后的目录，运行：
 
    ```sh
@@ -26,6 +26,14 @@ TypeWhisper 原生 macOS 插件：**MiMo ASR + Antigravity OAuth 润色**。
 也可通过 TypeWhisper 的“安装插件”选择解压后的 `tietiezhi.bundle`。升级旧版时推荐用脚本，避免同时保留两个同 ID 的 bundle。
 
 **每台设备分别填写 Key、登录 Google。安装包与 GitHub 不包含用户密钥或 Token。**
+
+## 插件内更新
+
+打开插件设置底部的 **插件更新 → 检查更新 → 安装新版 → 下载并安装**。安装后完全退出并重开 TypeWhisper 生效，不热加载代码，也不会自动退出宿主。
+
+只从本项目公开 GitHub Release 下载稳定版本，校验 SHA-256、ZIP 路径/体积/符号链接、插件 ID/版本、宿主和 macOS 兼容性、代码签名及 Universal 架构。旧版自动备份，失败时不覆盖旧版；不运行下载包里的脚本，不读写 Keychain 或用户偏好，不需要 Xcode。
+
+SHA-256 用于下载完整性校验；安装包仍是 ad-hoc 签名、未经 Apple 公证，并非独立发布者数字签名。更新信任边界是本项目的 GitHub 发布账号及 HTTPS。首次安装仍使用安装脚本或宿主安装功能；装好 0.4.1 后后续可在插件内更新。
 
 ## 位置与升级
 
@@ -52,9 +60,9 @@ TypeWhisper 原生 macOS 插件：**MiMo ASR + Antigravity OAuth 润色**。
 
 使用社区公开桌面 OAuth 客户端，授权页名称可能不是 tietiezhi，权限包含 Google Cloud。首次点击登录会弹出简短风险确认。
 
-“退出”只清除本插件的本地凭据和模型缓存；远端撤销在 **高级 → 撤销 Google 授权**。不轮换账号、不绕过 401/403/429；这些错误不会触发端点重试。不创建项目、初始化套餐或开通付费服务。
+“退出”只清除本插件的本地凭据和模型缓存；远端撤销在 **高级 → 撤销 Google 授权**。不轮换账号、不绕过权限或额度限制；生成遇到 401/403/429 不重试。不创建项目、初始化套餐或开通付费服务。
 
-原生 Swift 实现参考本机 `pi-antigravity 0.9.0`，不运行 Pi、不读取 Pi/浏览器的登录凭据。HTTP 使用 CLI 协议兼容头并保留 `tietiezhi` 标记。只读目录探测可在方法不存在、服务故障或超时后尝试另外两个固定 Google 端点；生成请求只使用已发现的来源端点，不自动重试。
+原生 Swift 实现参考本机 `pi-antigravity 0.9.0`，不运行 Pi、不读取 Pi/浏览器的登录凭据。HTTP 使用 CLI 协议兼容头并保留 `tietiezhi` 标记。只读项目和目录发现预先并行查询三个固定 Google 端点，每个来源仅查询一次、无失败重试；局部 403 不再丢弃其他来源已合法返回的模型。全部来源拒绝则明确报错；401/429 保留错误。生成只使用模型已发现的来源端点，不切换或自动重试。
 
 授权成功独立保存；项目发现不是登录前提。先尝试 `loadCodeAssist` 和 `listCloudAICompanionProjects`，未返回项目时使用按账号生成的稳定 UUID 路由，与 Pi 的主要逻辑一致。UUID 不是真实 Cloud 项目、不会赋予额外权限，后端仍可能拒绝。资料读取失败时以本插件新取得的凭据摘要作为账号种子。生成使用 `streamGenerateContent?alt=sse`，只有完整 STOP 结果才交给宿主。
 
@@ -66,7 +74,7 @@ MiMo 只负责转录，停止录音后出结果，不提供实时字幕/翻译�
 
 - `invalid_grant`：重新发起登录，不要刷新旧回调页面。
 - 旧版“未找到项目”或填了 `1`：升级后重新登录；不再需要这个字段，也不会初始化免费项目。
-- 403：Google 拒绝访问；429：额度/频率受限，不自动绕过。
+- 403：错误会列出三个目录端点的状态和可用的白名单权限原因。若全部为 403，尝试重新登录以补齐授权；仍被拒绝需检查 Google 账号资格/权限，插件不伪造可用模型。429：额度/频率受限，不自动绕过。
 - 模型列表获取失败：保留已有缓存，仍可点击“刷新模型”重试。
 
 不要公开截图里的浏览器回调地址、API Key 或 Token。
@@ -87,6 +95,11 @@ cd typewhisper-tietiezhi
 安装包是 arm64/x86_64 Universal，构建时校验两种架构的 SDK 导入符号。
 
 测试包含实际 bundle 加载、ASR、OAuth/刷新/退出、HTTP 回调、模型列表解析、思考参数以及工作流协议。测试只用模拟数据与 localhost，不用真实账号调用云端。真实账号/接口变化需在本机验证。
+
+## 两个独立插件仓库
+
+- 本仓库：TypeWhisper 原生 Swift 插件，提供 MiMo ASR、Antigravity 润色与更新按钮。
+- [tietiezhi-paseo](https://github.com/tietiezhi-1216/tietiezhi-paseo)：Paseo 插件，独立安装、发布，不作为本插件的运行依赖。
 
 ## 许可与参考
 

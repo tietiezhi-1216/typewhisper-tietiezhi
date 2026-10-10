@@ -54,6 +54,8 @@ import TypeWhisperPluginSDK
         guard let type = NSClassFromString("MiMoASRPlugin") as? any TypeWhisperPlugin.Type,
               let engine = type.init() as? any TranscriptionEnginePlugin else { fatalError("Plugin SDK cast failed") }
         expect(engine.providerId == "xiaomi-mimo-asr", "Real bundle load and host protocol conformance")
+        let ownerBundle = Bundle(for: Swift.type(of: engine as! NSObject))
+        expect(ownerBundle.bundleURL.standardizedFileURL == url.standardizedFileURL, "Updater resolves the loaded plugin bundle, not the host app")
         expect(engine.transcriptionModels.first?.id == MiMoCore.model, "Host reads model metadata")
         expect(!engine.isConfigured && !engine.supportsStreaming && !engine.supportsTranslation, "Accurate host capability flags")
         expect(engine.settingsView != nil, "Native SwiftUI settings view")
@@ -85,6 +87,7 @@ import TypeWhisperPluginSDK
         try await modelTests()
         try await routingTests()
         try streamTests()
+        try await updateTests()
         try await loopbackTests()
         print("All tests passed. Only offline mocks and loopback HTTP; no real credentials, browser login, or live API calls.")
     }

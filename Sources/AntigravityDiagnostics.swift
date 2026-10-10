@@ -38,7 +38,12 @@ struct AntigravityHTTPError: LocalizedError, Sendable {
         if let error = object["error"] as? [String: Any] {
             if let code = error["status"] as? String, allowed.contains(code) { pieces.append("Google 错误码：" + code) }
             let allowedFields = Set(["metadata", "metadata.plugin_type", "metadata.pluginType", "metadata.ide_type", "metadata.ideType", "metadata.platform", "cloudaicompanion_project", "cloudaicompanionProject", "model", "project", "request", "request.generation_config", "request.generationConfig"])
+            let reasons = Set(["ACCESS_TOKEN_SCOPE_INSUFFICIENT", "SERVICE_DISABLED", "CONSUMER_INVALID", "IAM_PERMISSION_DENIED", "VPC_SERVICE_CONTROLS", "SECURITY_POLICY_VIOLATED", "USER_PROJECT_DENIED", "PROJECT_NOT_FOUND", "ACCOUNT_DISABLED", "LOCATION_NOT_SUPPORTED"])
             for detail in error["details"] as? [[String: Any]] ?? [] {
+                if let reason = detail["reason"] as? String, reasons.contains(reason) {
+                    pieces.append("权限原因：" + reason)
+                    if reason == "ACCESS_TOKEN_SCOPE_INSUFFICIENT" { pieces.append("授权范围不足，请重新登录以补齐权限。") }
+                }
                 for violation in detail["fieldViolations"] as? [[String: Any]] ?? [] {
                     if let field = violation["field"] as? String, allowedFields.contains(field) { pieces.append("无效字段：" + field) }
                 }

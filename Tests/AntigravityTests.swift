@@ -26,11 +26,24 @@ final class TestHost: HostServices, @unchecked Sendable {
 actor MockTransport {
     private var responses: [(Int, Data)]
     private var requests: [URLRequest] = []
+    private var perHost: [String: [(Int, Data)]] = [:]
     init(_ responses: [(Int, String)]) { self.responses = responses.map { ($0.0, Data($0.1.utf8)) } }
+    init(perHost: [String: [(Int, String)]]) {
+        self.responses = []
+        self.perHost = perHost.mapValues { $0.map { ($0.0, Data($0.1.utf8)) } }
+    }
     func send(_ request: URLRequest) async throws -> (Data, URLResponse) {
         requests.append(request)
-        guard !responses.isEmpty else { fatalError("Unexpected HTTP request") }
-        let (status, data) = responses.removeFirst()
+        let status: Int, data: Data
+        if !perHost.isEmpty {
+            let host = request.url!.host!
+            guard var items = perHost[host], !items.isEmpty else { fatalError("Unexpected endpoint request") }
+            (status, data) = items.removeFirst()
+            perHost[host] = items
+        } else {
+            guard !responses.isEmpty else { fatalError("Unexpected HTTP request") }
+            (status, data) = responses.removeFirst()
+        }
         // Permit actor reentrancy, exercising concurrent refresh coalescing.
         try await Task.sleep(for: .milliseconds(20))
         return (data, HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: nil)!)
@@ -67,6 +80,8 @@ extension Tests {
         let diagnostic = AntigravityHTTPError.safeDiagnostic(badResponse)
         expect(diagnostic.contains("INVALID_ARGUMENT") && diagnostic.contains("metadata.plugin_type"), "Safe diagnostics preserve machine code and field name")
         expect(!diagnostic.contains("fake-") && !diagnostic.contains("private text"), "Diagnostics never expose arbitrary Google error messages")
+        let scopeError = AntigravityHTTPError.safeDiagnostic(Data(#"{"error":{"status":"PERMISSION_DENIED","details":[{"reason":"ACCESS_TOKEN_SCOPE_INSUFFICIENT","metadata":{"token":"private-secret"}}]}}"#.utf8))
+        expect(scopeError.contains("ACCESS_TOKEN_SCOPE_INSUFFICIENT") && !scopeError.contains("private-secret"), "403 diagnostic preserves safe scope reason but not metadata")
         let exchangeMock = MockTransport([(400, #"{"error":"invalid_grant","error_description":"fake-secret"}"#)])
         let exchangeService = AntigravityService(transport: { try await exchangeMock.send($0) })
         do {

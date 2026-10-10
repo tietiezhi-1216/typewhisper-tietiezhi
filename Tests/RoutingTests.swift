@@ -16,8 +16,8 @@ extension Tests {
         let mock = MockTransport([
             (200, #"{"access_token":"fake","refresh_token":"fake-refresh","expires_in":3600}"#),
             (200, #"{"email":"offline@example.invalid"}"#),
-            (200, #"{"allowedTiers":[{"id":"free-tier","isDefault":true}]}"#),
-            (200, #"{"projects":[]}"#),
+            (200, #"{"allowedTiers":[{"id":"free-tier","isDefault":true}]}"#), (200, "{}"), (200, "{}"),
+            (200, #"{"projects":[]}"#), (200, "{}"), (200, "{}"),
             (200, piCatalog), (404, "{}"), (404, "{}"),
             (200, #"{"response":{"candidates":[{"finishReason":"STOP","content":{"parts":[{"text":"done"}]}}]}}"#)
         ])
@@ -33,16 +33,17 @@ extension Tests {
         let requests = await mock.allRequests()
         let metadata = try JSONSerialization.jsonObject(with: requests[2].httpBody!) as! [String: Any]
         expect((metadata["metadata"] as? [String: String]) == ["ideType": "ANTIGRAVITY"], "Use actual Pi Antigravity metadata rather than Gemini initialization enums")
-        expect(requests[3].url?.path == "/v1internal:listCloudAICompanionProjects", "Try read-only account project list")
+        expect(requests[5].url?.path == "/v1internal:listCloudAICompanionProjects", "Try read-only account project list")
         let generation = try JSONSerialization.jsonObject(with: requests.last!.httpBody!) as! [String: Any]
         expect(generation["project"] as? String == credentials.projectID, "Ignore invalid legacy manual preference, use stable fallback")
-        expect(requests.count == 8 && requests.filter { $0.url?.path.contains("loadCodeAssist") == true }.count == 1, "Cache project absence for 30 minutes")
+        expect(requests.count == 12 && requests.filter { $0.url?.path.contains("loadCodeAssist") == true }.count == 3, "Cache project absence for 30 minutes")
         expect(!requests.contains { $0.url?.path.contains("onboard") == true || $0.url?.path.contains("operations") == true }, "No provisioning even when free tier is offered")
 
         let managedHost = TestHost()
         try managedHost.storeSecret(key: AntigravityCore.secretKey, value: credentials.encoded())
         let managedMock = MockTransport([
-            (200, #"{"backendProjectId":"account-project"}"#), (200, piCatalog), (404, "{}"), (404, "{}")
+            (200, #"{"backendProjectId":"account-project"}"#), (403, "{}"), (403, "{}"),
+            (200, piCatalog), (404, "{}"), (404, "{}")
         ])
         let managedService = AntigravityService(transport: { try await managedMock.send($0) })
         _ = try await managedService.models(host: managedHost)
@@ -55,26 +56,26 @@ extension Tests {
             var managed = credentials
             managed.projectID = "account-project"; managed.projectIsFallback = false
             try deniedHost.storeSecret(key: AntigravityCore.secretKey, value: managed.encoded())
-            let deniedMock = MockTransport([(status, "{}")])
+            let deniedMock = MockTransport([(status, "{}"), (status, "{}"), (status, "{}")])
             let deniedService = AntigravityService(transport: { try await deniedMock.send($0) })
             do { _ = try await deniedService.models(host: deniedHost); fatalError("Denied catalog accepted") }
             catch let error as AntigravityHTTPError { expect(error.status == status && error.stage == .models, "Report catalog denial/limit: \(status)") }
             let count = await deniedMock.count()
-            expect(count == 1, "No endpoint rotation for HTTP \(status)")
+            expect(count == 3, "Each catalog source is queried once, with no retries for HTTP \(status)")
             expect(AntigravityCredentials.decode(deniedHost.loadSecret(key: AntigravityCore.secretKey)) != nil, "Catalog failure does not erase successful OAuth")
         }
         let blockedHost = TestHost()
         try blockedHost.storeSecret(key: AntigravityCore.secretKey, value: credentials.encoded())
-        let blockedMock = MockTransport([(403, "{}"), (403, "{}")])
+        let blockedMock = MockTransport(Array(repeating: (403, "{}"), count: 6))
         let blocked = AntigravityService(transport: { try await blockedMock.send($0) })
         do { _ = try await blocked.models(host: blockedHost); fatalError("Denied model accepted") }
         catch let error as AntigravityHTTPError { expect(error.stage == .models, "Project failure is nonfatal but model permission error remains explicit") }
         let deniedRequests = await blockedMock.allRequests()
-        expect(deniedRequests.count == 2 && deniedRequests.allSatisfy { $0.url?.host == "daily-cloudcode-pa.googleapis.com" }, "Do not probe other endpoints after project/model 403")
+        expect(deniedRequests.count == 6 && deniedRequests.filter { $0.url?.path.contains("fetchAvailableModels") == true }.count == 3, "All sources denied remains explicit; no retries, account changes or fabricated models")
 
         let lateHost = TestHost()
         try lateHost.storeSecret(key: AntigravityCore.secretKey, value: credentials.encoded())
-        let lateMock = MockTransport([(200, #"{"projectId":"late-project"}"#)])
+        let lateMock = MockTransport([(200, #"{"projectId":"late-project"}"#), (200, "{}"), (200, "{}")])
         let lateService = AntigravityService(transport: { try await lateMock.send($0) })
         let call = Task { try await lateService.models(host: lateHost) }
         for _ in 0..<100 {
