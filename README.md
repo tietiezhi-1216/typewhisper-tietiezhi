@@ -1,5 +1,7 @@
 # tietiezhi
 
+**Windows 预览版已提供：** [安装与使用](windows/README.md) · [Windows 下载](https://github.com/tietiezhi-1216/typewhisper-tietiezhi/releases/tag/windows-v0.1.0)。Windows 首版支持 MiMo ASR 与 Antigravity 润色；下文为 macOS 版说明，两个平台的安装包不可混用。
+
 TypeWhisper 原生 macOS 插件：**MiMo / 千问 ASR + Antigravity OAuth 润色 + 组合键快捷启动**。
 
 设置页包含 MiMo 与千问各自的 API Key、快捷启动、Antigravity 登录、模型与思考等级及更新按钮。登录后自动获取账号的文本模型列表，也可手动刷新。不需要手填项目 ID，不初始化 Cloud 项目。
@@ -8,7 +10,7 @@ TypeWhisper 原生 macOS 插件：**MiMo / 千问 ASR + Antigravity OAuth 润色
 
 ## 在其他 Mac 上安装
 
-支持 **Apple Silicon 与 Intel、macOS 14+**。需要安装 **TypeWhisper 1.7.1+**，已验证版本为 1.7.1；后续宿主版本仍需兼容性验证。不是 Windows/iPhone 插件。
+支持 **Apple Silicon 与 Intel、macOS 14+**。需要安装 **TypeWhisper 1.7.1+**，已验证版本为 1.7.1；后续宿主版本仍需兼容性验证。此 macOS 安装包不能用于 Windows/iPhone；Windows 请使用上方独立安装包。
 
 1. 打开本仓库的 **Releases**（公开下载，无需 GitHub 登录）。
 2. 下载 `tietiezhi-0.6.0-macos-universal.zip` 并解压。

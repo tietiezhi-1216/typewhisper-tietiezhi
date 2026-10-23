@@ -1,0 +1,176 @@
+using TypeWhisper.PluginSDK.Models;
+
+namespace TypeWhisper.PluginSDK;
+
+/// <summary>
+/// Plugin that provides audio transcription capabilities via a cloud or local engine.
+/// </summary>
+public interface ITranscriptionEnginePlugin : ITypeWhisperPlugin
+{
+    /// <summary>Unique provider identifier (e.g. "openai", "groq").</summary>
+    string ProviderId { get; }
+
+    /// <summary>Maximum encoded WAV bytes accepted by this engine, including headers.</summary>
+    int MaximumAudioUploadBytes => int.MaxValue;
+
+    /// <summary>Human-readable provider name for the UI.</summary>
+    string ProviderDisplayName { get; }
+
+    /// <summary>Whether the provider is configured and ready (API key set, etc.).</summary>
+    bool IsConfigured { get; }
+
+    /// <summary>Available transcription models for this provider.</summary>
+    IReadOnlyList<PluginModelInfo> TranscriptionModels { get; }
+
+    /// <summary>Currently selected model ID, or null if none selected.</summary>
+    string? SelectedModelId { get; }
+
+    /// <summary>Whether this provider supports translation (audio to English).</summary>
+    bool SupportsTranslation { get; }
+
+    /// <summary>Selects a transcription model by ID.</summary>
+    void SelectModel(string modelId);
+
+    /// <summary>
+    /// Selects a transcription model by ID without blocking the caller. Engines that persist the
+    /// selection through asynchronous storage or wait for an asynchronous gate override this member
+    /// as a public method; the default forwards to <see cref="SelectModel"/>, which stays the entry
+    /// point for hosts that predate this member.
+    /// </summary>
+    Task SelectModelAsync(string modelId, CancellationToken ct)
+    {
+        SelectModel(modelId);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Transcribes WAV audio data and returns the result.</summary>
+    Task<PluginTranscriptionResult> TranscribeAsync(
+        byte[] wavAudio, string? language, bool translate, string? prompt, CancellationToken ct);
+
+    /// <summary>Whether the selected model consumes multiple ordered language hints through the WAV method.</summary>
+    /// <remarks>False by default: the compatibility method only selects the first language and is not multi-language detection.</remarks>
+    bool SupportsLanguageHints => false;
+
+    /// <summary>Transcribes WAV audio with ordered language hints.</summary>
+    Task<PluginTranscriptionResult> TranscribeWithLanguageHintsAsync(
+        byte[] wavAudio, IReadOnlyList<string> languageHints, bool translate, string? prompt, CancellationToken ct) =>
+        TranscribeAsync(wavAudio, FirstLanguageHint(languageHints), translate, prompt, ct);
+
+    /// <summary>Whether this engine supports downloading and managing local model files.</summary>
+    bool SupportsModelDownload => false;
+
+    /// <summary>Whether the given model's files are downloaded and ready to use.</summary>
+    bool IsModelDownloaded(string modelId) => true;
+
+    /// <summary>Downloads model files for the given model ID, reporting progress 0.0–1.0.</summary>
+    Task DownloadModelAsync(string modelId, IProgress<double>? progress, CancellationToken ct)
+        => Task.CompletedTask;
+
+    /// <summary>Whether this engine can remove downloaded files for an individual model.</summary>
+    bool SupportsModelRemoval => false;
+
+    /// <summary>Removes downloaded files for the given model ID.</summary>
+    Task RemoveModelAsync(string modelId, CancellationToken ct) =>
+        throw new NotSupportedException("This transcription engine does not support model removal.");
+
+    /// <summary>Loads a downloaded model into memory, preparing it for transcription.</summary>
+    Task LoadModelAsync(string modelId, CancellationToken ct) => Task.CompletedTask;
+
+    /// <summary>Whether this engine supports real-time streaming transcription via <see cref="IStreamingSession"/>.</summary>
+    bool SupportsStreaming => false;
+
+    /// <summary>FinalizeAsync waits for all confirmed segments; interrupted streams fail instead of returning partial success.</summary>
+    bool SupportsStreamingCompletion => false;
+
+    /// <summary>Allows repeated local PCM snapshots during capture. Must not upload audio or mutate final results.</summary>
+    bool SupportsLocalLivePreview => false;
+
+    /// <summary>
+    /// Whether the host may pass active TypeWhisper dictionary terms through the transcription prompt.
+    /// </summary>
+    bool SupportsDictionaryTerms => false;
+
+    /// <summary>
+    /// Provider-specific limits applied by the host before dictionary terms are added to a prompt.
+    /// </summary>
+    DictionaryTermsBudget DictionaryTermsBudget => DictionaryTermsBudget.Default;
+
+    /// <summary>Accepts versioned structured dictionary prompts and decodes them before calling the provider.
+    /// Defaults to false so existing packages continue to receive plain comma-separated prompts.</summary>
+    bool SupportsStructuredDictionaryTerms => false;
+
+    /// <summary>
+    /// Whether this engine can use real-time streaming for the supplied prompt.
+    /// Defaults to <see cref="SupportsStreaming"/> for backward compatibility.
+    /// Plugins that opt into <see cref="SupportsDictionaryTerms"/> must override this when
+    /// their streaming transport cannot preserve prompt terms.
+    /// </summary>
+    bool SupportsStreamingForPrompt(string? prompt) => SupportsStreaming;
+
+    /// <summary>
+    /// Opens a real-time streaming session (e.g. WebSocket). The host feeds PCM16 audio via the session.
+    /// Only called when <see cref="SupportsStreaming"/> is true.
+    /// </summary>
+    Task<IStreamingSession> StartStreamingAsync(string? language, CancellationToken ct)
+        => throw new NotSupportedException();
+
+    /// <summary>Opens a real-time streaming session with ordered language hints.</summary>
+    Task<IStreamingSession> StartStreamingWithLanguageHintsAsync(
+        IReadOnlyList<string> languageHints, CancellationToken ct) =>
+        StartStreamingAsync(FirstLanguageHint(languageHints), ct);
+
+    /// <summary>
+    /// Opens a real-time streaming session with ordered language hints and provider-specific
+    /// prompt context. The default implementation preserves compatibility with plugins whose
+    /// streaming transport does not consume prompt context.
+    /// </summary>
+    Task<IStreamingSession> StartStreamingWithLanguageHintsAndPromptAsync(
+        IReadOnlyList<string> languageHints,
+        string? prompt,
+        CancellationToken ct) =>
+        StartStreamingWithLanguageHintsAsync(languageHints, ct);
+
+    /// <summary>Unloads the currently loaded model from memory to free resources.</summary>
+    Task UnloadModelAsync() => Task.CompletedTask;
+
+    /// <summary>ISO language codes supported by this engine, or empty for all.</summary>
+    IReadOnlyList<string> SupportedLanguages => [];
+
+    /// <summary>Acceleration backends supported by this engine.</summary>
+    IReadOnlyList<TranscriptionAccelerationBackend> SupportedAccelerationBackends =>
+        [TranscriptionAccelerationBackend.Cpu];
+
+    /// <summary>Preferred acceleration mode requested by the host.</summary>
+    TranscriptionAccelerationPreference AccelerationPreference =>
+        TranscriptionAccelerationPreference.Auto;
+
+    /// <summary>Current acceleration backend and user-facing status.</summary>
+    TranscriptionAccelerationStatus AccelerationStatus =>
+        new(TranscriptionAccelerationBackend.Cpu, "Using CPU");
+
+    /// <summary>Applies a host-selected acceleration preference.</summary>
+    void SetAccelerationPreference(TranscriptionAccelerationPreference preference) { }
+
+    /// <summary>
+    /// Transcribes audio with streaming progress updates. Default delegates to <see cref="TranscribeAsync"/>.
+    /// </summary>
+    /// <param name="wavAudio">WAV audio data to transcribe.</param>
+    /// <param name="language">Target language code, or null for auto-detect.</param>
+    /// <param name="translate">Whether to translate the result to English.</param>
+    /// <param name="prompt">Optional prompt/context hint for the engine.</param>
+    /// <param name="onProgress">Callback invoked with partial transcription text. Return false to cancel.</param>
+    /// <param name="ct">Cancellation token.</param>
+    Task<PluginTranscriptionResult> TranscribeStreamingAsync(
+        byte[] wavAudio, string? language, bool translate, string? prompt,
+        Func<string, bool> onProgress, CancellationToken ct)
+        => TranscribeAsync(wavAudio, language, translate, prompt, ct);
+
+    /// <summary>Transcribes audio with progress updates and ordered language hints.</summary>
+    Task<PluginTranscriptionResult> TranscribeStreamingWithLanguageHintsAsync(
+        byte[] wavAudio, IReadOnlyList<string> languageHints, bool translate, string? prompt,
+        Func<string, bool> onProgress, CancellationToken ct) =>
+        TranscribeStreamingAsync(wavAudio, FirstLanguageHint(languageHints), translate, prompt, onProgress, ct);
+
+    private static string? FirstLanguageHint(IReadOnlyList<string> languageHints) =>
+        languageHints.FirstOrDefault(static value => !string.IsNullOrWhiteSpace(value))?.Trim();
+}

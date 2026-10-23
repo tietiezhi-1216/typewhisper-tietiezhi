@@ -4,3 +4,7 @@ antigravity-reference/
 mimo-reference.txt
 build/
 .DS_Store
+windows/**/bin/
+windows/**/obj/
+windows/dist/
+windows/**/__pycache__/

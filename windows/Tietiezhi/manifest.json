@@ -1,0 +1,13 @@
+{
+  "id": "com.tietiezhi.mimo-antigravity",
+  "name": "tietiezhi",
+  "version": "0.1.0",
+  "minHostVersion": "1.2.1",
+  "author": "tietiezhi",
+  "description": "MiMo ASR + Antigravity OAuth（非官方，存在账号及兼容性风险）。",
+  "locality": "cloud",
+  "categories": ["transcription", "llm"],
+  "requiresApiKey": true,
+  "assemblyName": "TypeWhisper.Plugin.Tietiezhi.dll",
+  "pluginClass": "TypeWhisper.Plugin.Tietiezhi.TietiezhiPlugin"
+}

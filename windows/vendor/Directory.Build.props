@@ -1,0 +1,4 @@
+<Project>
+  <!-- Match upstream's default SDK assembly identity. Release hosts may supply a newer version. -->
+  <PropertyGroup><Version>0.0.1-dev</Version></PropertyGroup>
+</Project>
