@@ -1,4 +1,4 @@
-# tietiezhi for TypeWhisper Windows — 0.1.1 Preview
+# tietiezhi for TypeWhisper Windows — 0.1.2 Preview
 
 Windows 原生托管插件，不需要运行 Pi、Python 或本地代理。Mac 版与 Windows 版源码同仓库，安装包互不通用。
 
@@ -9,6 +9,8 @@ Windows 原生托管插件，不需要运行 Pi、Python 或本地代理。Mac �
 - 登录后获取模型列表，选择模型和思考等级；保留各目录端点的运行路由。
 - API Key 和 OAuth 凭据使用 TypeWhisper 的 Windows DPAPI 加密存储。
 - 设置 UI 由 TypeWhisper 渲染；润色指令仍在宿主工作流配置。
+- 独立操作接口：未保存的模型/思考等级/Key 草稿不再拦截登录或更新，也不会被静默保存；空模型目录不显示可编辑空字段。
+- 在线检查、下载与校验更新，等待宿主完全退出后安装并自动重开。
 - 调用日志记录模型、耗时与成功/失败，不记录录音、正文或 Token。
 
 **Antigravity 为非官方集成，可能失效或导致账号受限，不代表 Google 授权支持第三方使用。** OAuth 登录独立于 Pi，不读取 Pi/浏览器已有凭据。录音发送到小米云端，工作流文本发送到 Google 服务。
@@ -19,11 +21,11 @@ Windows 原生托管插件，不需要运行 Pi、Python 或本地代理。Mac �
 
 首版以 **GitHub/官网桌面版 TypeWhisper Windows 1.2.1+、Windows x64、.NET 10 Runtime** 为目标。请先用 [官方 Windows 安装程序](https://github.com/TypeWhisper/typewhisper-win/releases) 安装/运行一次；旧版 1.0 插件架构不兼容。仅安装 Windows SDK/编译通过不代表通过真实桌面验收。
 
-1. 从本仓库 Releases 下载 `tietiezhi-0.1.1-windows-x64.zip`，完整解压。
+1. 从本仓库 Releases 下载 `tietiezhi-0.1.2-windows-x64.zip`，完整解压。
 2. 从系统托盘**完全退出 TypeWhisper**。
 3. 双击 `Install-tietiezhi.exe`，核对路径后输入 `YES`。不需要管理员权限。
 4. 重开 TypeWhisper，在插件设置启用 **tietiezhi**。
-5. 填写 **MiMo API Key**，点击 **登录 Antigravity**，浏览器授权后返回软件。
+5. 填写 **MiMo API Key** 后点击 **保存设置**。点击 **登录 Google**，浏览器授权后返回软件。两个凭据互不依赖；直接登录不会保存尚未提交的 MiMo Key。
 6. 等待模型列表，选择润色模型和思考等级；点击 **测试润色**。
 7. 在听写中选择 **MiMo ASR**，在工作流中选择 **Antigravity OAuth（非官方）** 作为 LLM 提供商，并配置润色指令与快捷键。
 
@@ -37,7 +39,13 @@ Windows 原生托管插件，不需要运行 Pi、Python 或本地代理。Mac �
 
 包内 `SHA256SUMS` 和发布的 SHA-256 用于传输完整性，不是发布者数字签名。当前未签名；只从本仓库 Release 下载，不要关闭全局安全防护或绕过企业策略。
 
-首版不包含 Mac 的一键自更新。更新 Windows 版时下载新安装包、退出宿主、重新运行安装工具，Key 与设置保留。纯 `windows-plugin.zip` 是供开发者/未来目录分发的 ZIP（文件直接位于根目录），不是可以双击执行的安装器。
+## 在线更新（0.1.2 起）
+
+在插件设置的按钮行点击 **检查更新 → 安装更新**。更新只读取公开 GitHub Windows Releases（包含 Windows 预览版），不读取 Mac latest，不发送 MiMo/Google 凭据，不要求 GitHub 登录。
+
+更新包经过 HTTPS 来源/跳转限制、外层 SHA-256、ZIP 路径/大小/链接/重复文件检查、插件清单/兼容版本与内层文件哈希校验。然后启动独立更新程序等待：**请从托盘完全退出 TypeWhisper，不要马上手动重开**。退出后自动备份并安装，完成后自动重新打开。不会强行结束进程或丢弃未保存文本。10 分钟内没有退出则取消安装，下次重新点击更新。失败时检查更新会提示重试；原包保持不变。手动安装包始终可用。
+
+**0.1.1 及更旧版本还没有更新入口，需要最后手动安装一次 0.1.2。** API Key、Google 凭据和工作流保留。纯 `windows-plugin.zip` 是供开发者/目录分发的 ZIP（文件直接位于根目录），不是可以双击执行的安装器。
 
 ## 构建与测试
 
@@ -50,4 +58,6 @@ python windows/package.py
 
 `DOTNET` 环境变量可指定 dotnet 可执行文件。打包会跨编译 Windows x64 framework-dependent 安装器（需要 .NET 10 Runtime）。SDK 来自 `vendor/README.md` 中锁定的官方版本，SDK DLL 不随插件分发。
 
-离线测试覆盖协议、凭据刷新、403 目录合并、禁止生成失败后切换端点、WAV 分段、设置/密钥持久化和安装索引备份。真实 Google 授权、MiMo 请求和 Windows TypeWhisper UI/录音插入仍需手动验收。
+离线测试覆盖协议、凭据刷新、403 目录合并、禁止生成失败后切换端点、WAV 分段、带未保存草稿的登录、设置/密钥持久化、更新源过滤与 ZIP/哈希安全检查、安装索引备份。Windows CI 另使用模拟宿主进程验证真实独立更新程序的“等待退出 → 安装 → 自动重开”，不启动用户的真实 TypeWhisper。
+
+真实 Google 授权、MiMo 请求和 Windows TypeWhisper UI/录音插入仍需手动验收。

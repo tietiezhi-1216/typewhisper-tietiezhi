@@ -22,3 +22,7 @@ jobs:
         run: dotnet run --project windows/Tests/Tietiezhi.Tests.csproj -c Release
       - name: Build Windows packages
         run: python windows/package.py
+      - name: Test detached update, install and restart on Windows
+        run: |
+          $version = (Get-Content windows/Tietiezhi/manifest.json | ConvertFrom-Json).version
+          dotnet run --project windows/Tests/Tietiezhi.Tests.csproj -c Release -- --packaged-smoke "windows/dist/tietiezhi-$version-windows-x64.zip"

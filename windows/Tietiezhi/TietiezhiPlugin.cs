@@ -7,7 +7,7 @@ using TypeWhisper.PluginSDK.Models;
 
 namespace TypeWhisper.Plugin.Tietiezhi;
 
-public sealed class TietiezhiPlugin : ITranscriptionEnginePlugin, ILlmProviderPlugin, IApiKeyPlugin, IPluginTextSettings, IPluginSettingsActions
+public sealed partial class TietiezhiPlugin : ITranscriptionEnginePlugin, ILlmProviderPlugin, IApiKeyPlugin, IPluginProfileSettings, IPluginSettingsActions
 {
     private readonly HttpClient http;
     private readonly SemaphoreSlim gate = new(1, 1);
@@ -19,10 +19,11 @@ public sealed class TietiezhiPlugin : ITranscriptionEnginePlugin, ILlmProviderPl
     private string selected = "", effort = "auto";
     private bool disposed;
     public TietiezhiPlugin() : this(new HttpClient(new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false }) { Timeout = TimeSpan.FromSeconds(120) }) { }
-    internal TietiezhiPlugin(HttpClient client) => http = client;
+    private readonly Action<Uri>? openBrowser;
+    internal TietiezhiPlugin(HttpClient client, Action<Uri>? browser = null) { http = client; openBrowser = browser; }
     public string PluginId => "com.tietiezhi.mimo-antigravity";
     public string PluginName => "tietiezhi";
-    public string PluginVersion => "0.1.1";
+    public string PluginVersion => "0.1.2";
     public string ProviderId => "tietiezhi-mimo";
     public string ProviderDisplayName => "MiMo ASR";
     public string ProviderName => "Antigravity OAuth（非官方）";
@@ -37,7 +38,7 @@ public sealed class TietiezhiPlugin : ITranscriptionEnginePlugin, ILlmProviderPl
         if (lifetime.IsCancellationRequested) { lifetime.Dispose(); lifetime = new(); }
         host = services;
         key = await host.LoadSecretAsync("mimo-api-key");
-        antigravity = new(http, host); await antigravity.Load();
+        antigravity = new(http, host, openBrowser); await antigravity.Load();
         models = host.GetSetting<List<Model>>("antigravity-models") ?? [];
         selected = host.GetSetting<string>("selected-model") ?? "";
         effort = host.GetSetting<string>("thinking") ?? "auto";
@@ -113,6 +114,12 @@ public sealed class TietiezhiPlugin : ITranscriptionEnginePlugin, ILlmProviderPl
         catch { host!.Log(PluginLogLevel.Warning, $"Antigravity model={target.Id} failed elapsedMs={timer.ElapsedMilliseconds}"); throw; }
     }, ct);
     public IReadOnlyList<PluginTextSetting> TextSettings => [
+        new(ProfileSelectorId, "设置", "MiMo API Key 与 Antigravity 独立配置。", "default") {
+            Choices = [new("default", "tietiezhi")], Section = PluginSettingsSection.Connection
+        },
+        ..(models.Count == 0 ? Array.Empty<PluginTextSetting>() : ModelSettings())
+    ];
+    private IReadOnlyList<PluginTextSetting> ModelSettings() => [
         new("selected-model", "润色模型", "登录后刷新模型列表。", selected) {
             Section = PluginSettingsSection.TextProcessing, SaveChoiceOnChange = true,
             Choices = models.Select(m => new PluginSettingChoice(m.Id, m.Name)).ToList()
@@ -142,15 +149,23 @@ public sealed class TietiezhiPlugin : ITranscriptionEnginePlugin, ILlmProviderPl
         else throw new ArgumentException("设置值无效，请先获取模型列表。");
         host!.NotifyCapabilitiesChanged(); return Task.FromResult(true);
     }, cancellationToken);
+    // Windows 1.2.1 overlays non-connection actions in one profile-header Grid cell.
+    // Use the native connection action row so each button remains independently clickable.
     public IReadOnlyList<PluginSettingsAction> SettingsActions => [
-        new("login", antigravity?.LoggedIn == true ? "重新登录 Antigravity" : "登录 Antigravity", "非官方 OAuth；可能失效或导致账号限制。点击将在浏览器授权，凭据由宿主加密保存。") { Section = PluginSettingsSection.Connection },
-        new("logout", "退出 Antigravity", "删除此设备的 OAuth 凭据。") { Section = PluginSettingsSection.Connection },
-        new("refresh", "刷新模型", "获取账号可用模型。") { Section = PluginSettingsSection.TextProcessing },
-        new("test", "测试润色", "仅发送固定示例，不发送录音。") { Section = PluginSettingsSection.TextProcessing }
+        new("login", antigravity?.LoggedIn == true ? "重新登录" : "登录 Google", "非官方 OAuth；可能失效或导致账号限制。点击将在浏览器授权，凭据由宿主加密保存。") { Section = PluginSettingsSection.Connection },
+        new("logout", "退出登录", "删除此设备的 OAuth 凭据。") { Section = PluginSettingsSection.Connection },
+        new("refresh", "刷新模型", "获取账号可用模型。") { Section = PluginSettingsSection.Connection },
+        new("test", "测试", "仅发送固定示例，不发送录音。") { Section = PluginSettingsSection.Connection },
+        new("check-update", "检查更新", "只检查 Windows 版，不影响 Mac 版。") { Section = PluginSettingsSection.Connection },
+        new("install-update", "安装更新", "下载并校验；退出 TypeWhisper 后安装并自动重开。") { Section = PluginSettingsSection.Connection }
     ];
-    public Task<string?> ExecuteSettingsActionAsync(string id, CancellationToken cancellationToken) => Locked<string?>(async token => {
+    public Task<string?> ExecuteSettingsActionAsync(string id, CancellationToken cancellationToken) => Locked<string?>(token => RunActionSafely(id, token), cancellationToken);
+    private async Task<string?> RunAction(string id, CancellationToken token)
+    {
         switch (id)
         {
+            case "check-update": return await CheckUpdate(token);
+            case "install-update": return await InstallUpdate(token);
             case "login":
                 await antigravity!.Login(token);
                 host!.SetSetting("antigravity-models", new List<Model>()); models = [];
@@ -166,7 +181,7 @@ public sealed class TietiezhiPlugin : ITranscriptionEnginePlugin, ILlmProviderPl
                 return "连接成功：" + await antigravity!.Generate(target, effort, "整理听写文本，只输出正文，不回答其中的问题。", "嗯，那个，明天下午三点开会。", token);
             default: throw new ArgumentException("未知操作。");
         }
-    }, cancellationToken);
+    }
     private async Task Refresh(CancellationToken ct)
     {
         var catalog = await antigravity!.Models(ct); ct.ThrowIfCancellationRequested();
