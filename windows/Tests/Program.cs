@@ -69,6 +69,12 @@ using var plugin = new TietiezhiPlugin(new HttpClient(new Handler(async (request
 })));
 await plugin.ActivateAsync(host);
 Check(!plugin.IsConfigured && !plugin.IsAvailable, "initial unconfigured state");
+// Official Windows v1.2.1 LocalCtcVocabulary.HostVersion is 1.1.6, not 1.2.1.
+var packagedManifest = JsonNode.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "manifest.json")))!;
+var minimumHost = Version.Parse(packagedManifest["minHostVersion"]!.GetValue<string>());
+Check(minimumHost == new Version(1, 1, 6), "manifest uses plugin contract version, not product version");
+Check(minimumHost <= new Version(1, 1, 6), "official Windows 1.2.1 passes compatibility gate");
+Check(packagedManifest["version"]!.GetValue<string>() == plugin.PluginVersion, "manifest and plugin versions match");
 await ThrowsAsync(() => plugin.TranscribeAsync(Wav(1), "zh", false, null, default), "missing key fails locally");
 Check(calls == 0, "no audio upload without key");
 await plugin.SetApiKeyAsync(" mimo-test ");

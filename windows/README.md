@@ -1,4 +1,4 @@
-# tietiezhi for TypeWhisper Windows — 0.1.0 Preview
+# tietiezhi for TypeWhisper Windows — 0.1.1 Preview
 
 Windows 原生托管插件，不需要运行 Pi、Python 或本地代理。Mac 版与 Windows 版源码同仓库，安装包互不通用。
 
@@ -15,9 +15,11 @@ Windows 原生托管插件，不需要运行 Pi、Python 或本地代理。Mac �
 
 ## 安装
 
+兼容声明使用宿主的**插件契约版本 1.1.6**，不是软件展示的产品版本 1.2.1。0.1.0 混用了两者，导致最新版也显示需要更新宿主；0.1.1 已修正，无需升级主程序。
+
 首版以 **GitHub/官网桌面版 TypeWhisper Windows 1.2.1+、Windows x64、.NET 10 Runtime** 为目标。请先用 [官方 Windows 安装程序](https://github.com/TypeWhisper/typewhisper-win/releases) 安装/运行一次；旧版 1.0 插件架构不兼容。仅安装 Windows SDK/编译通过不代表通过真实桌面验收。
 
-1. 从本仓库 Releases 下载 `tietiezhi-0.1.0-windows-x64.zip`，完整解压。
+1. 从本仓库 Releases 下载 `tietiezhi-0.1.1-windows-x64.zip`，完整解压。
 2. 从系统托盘**完全退出 TypeWhisper**。
 3. 双击 `Install-tietiezhi.exe`，核对路径后输入 `YES`。不需要管理员权限。
 4. 重开 TypeWhisper，在插件设置启用 **tietiezhi**。

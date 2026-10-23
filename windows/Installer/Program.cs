@@ -10,7 +10,7 @@ try
         throw new InvalidOperationException("请从托盘菜单完全退出 TypeWhisper，再运行安装工具。不要只关闭设置窗口。");
     var profile = args.Length == 2 && args[0] == "--profile" ? Path.GetFullPath(args[1])
         : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TypeWhisper-WinUI");
-    Console.WriteLine("tietiezhi Windows 0.1.0 安装\n需要 TypeWhisper Windows 1.2.1+（官网/GitHub 桌面版）。\n目标：" + profile);
+    Console.WriteLine("tietiezhi Windows 0.1.1 安装\n需要 TypeWhisper Windows 1.2.1+（官网/GitHub 桌面版）。\n目标：" + profile);
     Console.WriteLine("将安装 MiMo ASR 和非官方 Antigravity OAuth 插件，保留已有插件、Key 和工作流。\n仅当安装包来自 tietiezhi-1216/typewhisper-tietiezhi 时继续。\n输入 YES 确认安装：");
     if (Console.ReadLine() != "YES") return;
     var backup = InstallCore.Install(profile, Path.Combine(AppContext.BaseDirectory, "plugin"));

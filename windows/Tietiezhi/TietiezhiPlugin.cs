@@ -22,7 +22,7 @@ public sealed class TietiezhiPlugin : ITranscriptionEnginePlugin, ILlmProviderPl
     internal TietiezhiPlugin(HttpClient client) => http = client;
     public string PluginId => "com.tietiezhi.mimo-antigravity";
     public string PluginName => "tietiezhi";
-    public string PluginVersion => "0.1.0";
+    public string PluginVersion => "0.1.1";
     public string ProviderId => "tietiezhi-mimo";
     public string ProviderDisplayName => "MiMo ASR";
     public string ProviderName => "Antigravity OAuth（非官方）";
