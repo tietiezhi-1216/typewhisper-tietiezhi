@@ -1,8 +1,5 @@
 using System.Diagnostics;
-using System.Net;
 using System.Net.Http.Headers;
-using System.Net.Sockets;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -74,45 +71,14 @@ internal sealed class Antigravity(HttpClient http, IPluginHostServices host, Act
         };
         return new Uri("https://accounts.google.com/o/oauth2/v2/auth?" + string.Join('&', fields.Select(p => Uri.EscapeDataString(p.Key) + "=" + Uri.EscapeDataString(p.Value))));
     }
-    public async Task Login(CancellationToken ct)
+    public void OpenBrowser(Uri authorization)
     {
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct); timeout.CancelAfter(TimeSpan.FromMinutes(3));
-        var token = timeout.Token;
-        var verifier = Protocol.Base64Url(RandomNumberGenerator.GetBytes(32)); var state = Protocol.Base64Url(RandomNumberGenerator.GetBytes(32));
-        // Bind before opening browser, only to loopback. No elevated URL ACL or firewall exception.
-        using var listener = new TcpListener(IPAddress.Loopback, 36742); listener.Start();
-        var authorization = Authorization(verifier, state);
         if (openBrowser != null) openBrowser(authorization);
         else Process.Start(new ProcessStartInfo(authorization.AbsoluteUri) { UseShellExecute = true });
-        string? code = null;
-        while (code == null)
-        {
-            using var client = await listener.AcceptTcpClientAsync(token);
-            using var perClient = CancellationTokenSource.CreateLinkedTokenSource(token); perClient.CancelAfter(TimeSpan.FromSeconds(5));
-            var stream = client.GetStream();
-            var requestBytes = new List<byte>();
-            // Bound untrusted request headers (including a line without a newline).
-            while (requestBytes.Count < 16_384)
-            {
-                var b = new byte[1]; if (await stream.ReadAsync(b, perClient.Token) == 0) break;
-                requestBytes.Add(b[0]);
-                if (requestBytes.Count >= 4 && requestBytes.TakeLast(4).SequenceEqual(new byte[] { 13, 10, 13, 10 })) break;
-            }
-            var line = Encoding.ASCII.GetString(requestBytes.ToArray()).Split("\r\n")[0].Split(' ');
-            bool valid = false, denied = false;
-            try
-            {
-                if (requestBytes.Count >= 16_384 || line.Length != 3 || line[0] != "GET" || !line[1].StartsWith('/')) throw new InvalidOperationException();
-                code = Protocol.Callback(new Uri("http://localhost:36742" + line[1]), state); valid = true;
-            }
-            catch (OAuthDeniedException) { denied = true; }
-            catch (Exception e) when (e is InvalidOperationException or UriFormatException) { }
-            var body = valid ? "Authorization callback received. Return to TypeWhisper to check the result." : "Invalid callback. Return to TypeWhisper and try again.";
-            var bytes = Encoding.UTF8.GetBytes(body);
-            var header = Encoding.ASCII.GetBytes($"HTTP/1.1 {(valid ? "200 OK" : "400 Bad Request")}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {bytes.Length}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n");
-            await stream.WriteAsync(header, token); await stream.WriteAsync(bytes, token);
-            if (denied) throw new OAuthDeniedException();
-        }
+    }
+    public async Task CompleteLogin(string code, string verifier, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
         var response = await Token(new() { ["code"] = code, ["code_verifier"] = verifier, ["grant_type"] = "authorization_code", ["redirect_uri"] = Redirect }, token);
         var (access, seconds) = TokenValues(response); var refresh = response["refresh_token"]?.GetValue<string>();
         if (string.IsNullOrWhiteSpace(refresh)) throw new InvalidOperationException("Google 未返回刷新凭据，请重新授权。");

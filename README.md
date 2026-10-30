@@ -1,6 +1,6 @@
 # tietiezhi
 
-**Windows 预览版已提供：** [安装与使用](windows/README.md) · [Windows 下载](https://github.com/tietiezhi-1216/typewhisper-tietiezhi/releases/tag/windows-v0.1.2)。Windows 首版支持 MiMo ASR 与 Antigravity 润色；下文为 macOS 版说明，两个平台的安装包不可混用。
+**Windows 预览版已提供：** [安装与使用](windows/README.md) · [Windows 下载](https://github.com/tietiezhi-1216/typewhisper-tietiezhi/releases/tag/windows-v0.1.3)。Windows 首版支持 MiMo ASR 与 Antigravity 润色；下文为 macOS 版说明，两个平台的安装包不可混用。
 
 TypeWhisper 原生 macOS 插件：**MiMo / 千问 ASR + Antigravity OAuth 润色 + 组合键快捷启动**。
 

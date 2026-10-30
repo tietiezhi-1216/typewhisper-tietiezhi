@@ -9,7 +9,7 @@ using TypeWhisper.PluginSDK;
 using TypeWhisper.PluginSDK.Models;
 
 // Windows-only fixture used to test deferred updates without the real application.
-if (Path.GetFileNameWithoutExtension(Environment.ProcessPath).Equals("TypeWhisper", StringComparison.OrdinalIgnoreCase))
+if (Path.GetFileNameWithoutExtension(Environment.ProcessPath)?.Equals("TypeWhisper", StringComparison.OrdinalIgnoreCase) == true)
 {
     if (args.Contains("--fixture-host")) await Task.Delay(3000);
     else if (Environment.GetEnvironmentVariable("TIETIEZHI_UPDATE_SMOKE_RESTART_MARKER") is { } marker) File.WriteAllText(marker, "restarted");
@@ -123,57 +123,7 @@ await ThrowsAsync(() => refreshing.Generate(a, "low", "system", "text", default)
 Check(refreshCalls == 1 && generationCalls == 1, "no generation retry after denial");
 Check(refreshHost.Secrets["antigravity-oauth-v1"].Contains("rotated"), "rotated refresh token saved");
 
-// Real loopback sockets with a fake browser and fake Google transport; no live credentials.
-var loginHost = new FakeHost();
-using var loginHttp = new HttpClient(new Handler((request, ct) => Task.FromResult(Reply(
-    request.RequestUri!.Host == "oauth2.googleapis.com"
-        ? """{"access_token":"offline-access","refresh_token":"offline-refresh","expires_in":3600}"""
-        : """{"email":"offline@example.invalid"}"""))));
-Task? browserTask = null;
-var login = new Antigravity(loginHttp, loginHost, url => {
-    var state = Uri.UnescapeDataString(url.Query.TrimStart('?').Split('&').Single(p => p.StartsWith("state="))[6..]);
-    browserTask = Task.Run(async () => {
-        using var local = new HttpClient(new HttpClientHandler { UseProxy = false });
-        using var invalid = await local.GetAsync("http://127.0.0.1:36742/oauth-callback?code=bad&state=wrong");
-        Check(invalid.StatusCode == HttpStatusCode.BadRequest, "loopback rejects invalid state without ending login");
-        var page = await local.GetStringAsync("http://127.0.0.1:36742/oauth-callback?code=offline-code&state=" + Uri.EscapeDataString(state));
-        Check(page.Contains("callback received") && !page.Contains("offline-code"), "loopback page does not echo authorization code");
-    });
-});
-using (var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15))) await login.Login(timeout.Token);
-await browserTask!;
-Check(login.LoggedIn && loginHost.Secrets.ContainsKey("antigravity-oauth-v1"), "loopback completes OAuth and stores secret");
-using (var probe = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 36742)) { probe.Start(); Check(true, "loopback releases callback port"); }
-loginHost.Secrets["antigravity-oauth-v1"] = "invalid json";
-await login.Load(); Check(!login.LoggedIn, "damaged OAuth record does not break plugin activation");
-
-var profileHost = new FakeHost(); profileHost.Secrets["mimo-api-key"] = "saved-key";
-Task? draftBrowser = null; int browserOpened = 0;
-using var profilePlugin = new TietiezhiPlugin(new HttpClient(new Handler((request, ct) => Task.FromResult(
-    request.RequestUri!.Host == "oauth2.googleapis.com" ? Reply("""{"access_token":"access","refresh_token":"refresh","expires_in":3600}""")
-    : request.RequestUri.Host == "www.googleapis.com" ? Reply("""{"email":"offline@example.invalid"}""")
-    : request.RequestUri.AbsolutePath.EndsWith("fetchAvailableModels") ? Reply(catalogJson) : Reply("{}")))), url => {
-        browserOpened++;
-        var state = Uri.UnescapeDataString(url.Query.TrimStart('?').Split('&').Single(p => p.StartsWith("state="))[6..]);
-        draftBrowser = Task.Run(async () => { using var local = new HttpClient(new HttpClientHandler { UseProxy = false }); await local.GetStringAsync("http://127.0.0.1:36742/oauth-callback?code=offline&state=" + Uri.EscapeDataString(state)); });
-    });
-await profilePlugin.ActivateAsync(profileHost);
-Check(profilePlugin.TextSettings.Count == 1 && profilePlugin.TextSettings[0].Id == profilePlugin.ProfileSelectorId, "no editable blank model or reasoning before discovery");
-Check(profilePlugin.TextSettings[0].Choices.Count == 1 && profilePlugin.AddProfileActionId == null, "single profile activates host draft-action route");
-Check(profilePlugin.SettingsActions.All(a => a.Section == PluginSettingsSection.Connection), "avoid host profile-header button overlap");
-Check(profilePlugin.SettingsActions.Any(a => a.Id == "check-update") && profilePlugin.SettingsActions.Any(a => a.Id == "install-update"), "update actions available before Google login");
-var loginResult = await profilePlugin.ExecuteProfileActionAsync("default", "login", new Dictionary<string,string> { ["selected-model"] = "", ["thinking"] = "high" }, "unsaved-key", default);
-await draftBrowser!;
-Check(browserOpened == 1 && profilePlugin.IsAvailable && loginResult.Message.Contains("已登录"), "login executes with unsaved model and reasoning drafts");
-Check(profileHost.Secrets["mimo-api-key"] == "saved-key" && profileHost.GetSetting<string>("thinking") != "high", "login never silently saves unrelated drafts");
-Check(profilePlugin.TextSettings.All(f => f.Choices.Any(c => c.Value == f.Value)), "every displayed setting has a valid choice after discovery");
-await profilePlugin.SaveProfileSettingsAsync("default", new Dictionary<string,string> { ["selected-model"] = "gemini-a", ["thinking"] = "high" }, "new-key", default);
-Check(profileHost.GetSetting<string>("thinking") == "high" && profileHost.Secrets["mimo-api-key"] == "new-key", "explicit save persists model reasoning and key");
-await ThrowsAsync(() => profilePlugin.SaveProfileSettingsAsync("default", new Dictionary<string,string> { ["selected-model"] = "unknown" }, "bad-new-key", default), "invalid model rejects profile save");
-Check(profileHost.Secrets["mimo-api-key"] == "new-key", "invalid profile save preserves key");
-await profilePlugin.ExecuteProfileActionAsync("default", "logout", new Dictionary<string,string> { ["thinking"] = "nonsense" }, null, default);
-Check(!profilePlugin.IsAvailable && profilePlugin.TextSettings.Count == 1, "logout executes despite dirty draft and removes empty model editor");
-await profilePlugin.DeactivateAsync();
+await OAuthTests.Run(Check, Throws, ThrowsAsync, catalogJson);
 
 var temp = Path.Combine(Path.GetTempPath(), "tietiezhi-tests-" + Guid.NewGuid().ToString("N"));
 try
@@ -207,6 +157,7 @@ sealed class Handler(Func<HttpRequestMessage, CancellationToken, Task<HttpRespon
 sealed class FakeHost : IPluginHostServices
 {
     public Dictionary<string, string> Secrets = []; public Dictionary<string, string> Settings = [];
+    public List<string> Logs = [];
     public Task StoreSecretAsync(string key, string value) { Secrets[key] = value; return Task.CompletedTask; }
     public Task<string?> LoadSecretAsync(string key) => Task.FromResult(Secrets.GetValueOrDefault(key));
     public Task DeleteSecretAsync(string key) { Secrets.Remove(key); return Task.CompletedTask; }
@@ -217,6 +168,6 @@ sealed class FakeHost : IPluginHostServices
     public IPluginEventBus EventBus => throw new NotSupportedException();
     public IPluginLocalization Localization => throw new NotSupportedException();
     public IReadOnlyList<string> AvailableProfileNames => [];
-    public void Log(PluginLogLevel level, string message) { }
+    public void Log(PluginLogLevel level, string message) { Logs.Add(message); }
     public void NotifyCapabilitiesChanged() { }
 }

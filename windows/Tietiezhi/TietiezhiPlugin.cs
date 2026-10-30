@@ -23,7 +23,7 @@ public sealed partial class TietiezhiPlugin : ITranscriptionEnginePlugin, ILlmPr
     internal TietiezhiPlugin(HttpClient client, Action<Uri>? browser = null) { http = client; openBrowser = browser; }
     public string PluginId => "com.tietiezhi.mimo-antigravity";
     public string PluginName => "tietiezhi";
-    public string PluginVersion => "0.1.2";
+    public string PluginVersion => "0.1.3";
     public string ProviderId => "tietiezhi-mimo";
     public string ProviderDisplayName => "MiMo ASR";
     public string ProviderName => "Antigravity OAuth（非官方）";
@@ -46,7 +46,7 @@ public sealed partial class TietiezhiPlugin : ITranscriptionEnginePlugin, ILlmPr
     public async Task DeactivateAsync()
     {
         await lifetime.CancelAsync(); await gate.WaitAsync();
-        try { key = null; antigravity = null; host = null; models = []; }
+        try { ClearLoginSession(); key = null; antigravity = null; host = null; models = []; }
         finally { gate.Release(); }
     }
     private async Task<T> Locked<T>(Func<CancellationToken, Task<T>> operation, CancellationToken ct)
@@ -117,6 +117,7 @@ public sealed partial class TietiezhiPlugin : ITranscriptionEnginePlugin, ILlmPr
         new(ProfileSelectorId, "设置", "MiMo API Key 与 Antigravity 独立配置。", "default") {
             Choices = [new("default", "tietiezhi")], Section = PluginSettingsSection.Connection
         },
+        ..LoginSettings(),
         ..(models.Count == 0 ? Array.Empty<PluginTextSetting>() : ModelSettings())
     ];
     private IReadOnlyList<PluginTextSetting> ModelSettings() => [
@@ -140,7 +141,8 @@ public sealed partial class TietiezhiPlugin : ITranscriptionEnginePlugin, ILlmPr
         return ["auto", "off", "low", "medium", "high"];
     }
     public Task SaveTextSettingAsync(string id, string value, CancellationToken cancellationToken) => Locked(token => {
-        if (id == "selected-model" && models.Any(m => m.Id == value))
+        if (IsLoginSetting(id)) RememberLoginDraft(new Dictionary<string, string> { [id] = value });
+        else if (id == "selected-model" && models.Any(m => m.Id == value))
         {
             host!.SetSetting(id, value); selected = value;
             if (!Efforts().Contains(effort)) { host.SetSetting("thinking", "auto"); effort = "auto"; }
@@ -152,7 +154,12 @@ public sealed partial class TietiezhiPlugin : ITranscriptionEnginePlugin, ILlmPr
     // Windows 1.2.1 overlays non-connection actions in one profile-header Grid cell.
     // Use the native connection action row so each button remains independently clickable.
     public IReadOnlyList<PluginSettingsAction> SettingsActions => [
-        new("login", antigravity?.LoggedIn == true ? "重新登录" : "登录 Google", "非官方 OAuth；可能失效或导致账号限制。点击将在浏览器授权，凭据由宿主加密保存。") { Section = PluginSettingsSection.Connection },
+        new("login", loginSession != null ? "重新开始登录" : antigravity?.LoggedIn == true ? "重新登录" : "登录 Google", "非官方 OAuth；可能失效或导致账号限制。打开浏览器并显示可复制链接，不阻塞设置页。") { Section = PluginSettingsSection.Connection },
+        new("login-link", "获取登录链接", "生成新的 Google 授权链接，不打开本机浏览器；可复制到其他设备登录。旧登录链接随即失效。") { Section = PluginSettingsSection.Connection },
+        ..(loginSession == null ? Array.Empty<PluginSettingsAction>() : new PluginSettingsAction[] {
+            new("complete-login", "完成登录", "本机授权后直接点击；跨设备先粘贴 localhost 回调链接。不会保存其他设置草稿。") { Section = PluginSettingsSection.Connection },
+            new("cancel-login", "取消登录", "取消当前登录并释放回调端口，不删除已保存的凭据。") { Section = PluginSettingsSection.Connection }
+        }),
         new("logout", "退出登录", "删除此设备的 OAuth 凭据。") { Section = PluginSettingsSection.Connection },
         new("refresh", "刷新模型", "获取账号可用模型。") { Section = PluginSettingsSection.Connection },
         new("test", "测试", "仅发送固定示例，不发送录音。") { Section = PluginSettingsSection.Connection },
@@ -160,20 +167,19 @@ public sealed partial class TietiezhiPlugin : ITranscriptionEnginePlugin, ILlmPr
         new("install-update", "安装更新", "下载并校验；退出 TypeWhisper 后安装并自动重开。") { Section = PluginSettingsSection.Connection }
     ];
     public Task<string?> ExecuteSettingsActionAsync(string id, CancellationToken cancellationToken) => Locked<string?>(token => RunActionSafely(id, token), cancellationToken);
-    private async Task<string?> RunAction(string id, CancellationToken token)
+    private async Task<string?> RunAction(string id, CancellationToken token, IReadOnlyDictionary<string, string>? values = null)
     {
         switch (id)
         {
             case "check-update": return await CheckUpdate(token);
             case "install-update": return await InstallUpdate(token);
-            case "login":
-                await antigravity!.Login(token);
-                host!.SetSetting("antigravity-models", new List<Model>()); models = [];
-                host.NotifyCapabilitiesChanged();
-                try { await Refresh(token); return "已登录，模型已更新。"; }
-                catch (Exception e) when (e is not OperationCanceledException) { return "已登录，但模型获取失败：" + (e is ApiException ? e.Message : "请点击刷新模型查看状态。"); }
+            case "login": return BeginLogin(true, token);
+            case "login-link": return BeginLogin(false, token);
+            case "complete-login": return await FinishLogin(values, token);
+            case "cancel-login":
+                ClearLoginSession(); host!.NotifyCapabilitiesChanged(); return "已取消登录，原有 Google 凭据与 MiMo Key 保留。";
             case "logout":
-                await antigravity!.Logout(); host!.SetSetting("antigravity-models", new List<Model>()); models = [];
+                ClearLoginSession(); await antigravity!.Logout(); host!.SetSetting("antigravity-models", new List<Model>()); models = [];
                 host.NotifyCapabilitiesChanged(); return "已退出 Antigravity，MiMo Key 保留。";
             case "refresh": await Refresh(token); return $"已获取 {models.Count} 个模型。";
             case "test":
@@ -193,6 +199,6 @@ public sealed partial class TietiezhiPlugin : ITranscriptionEnginePlugin, ILlmPr
     public void Dispose()
     {
         if (disposed) return; disposed = true;
-        lifetime.Cancel(); http.Dispose();
+        lifetime.Cancel(); ClearLoginSession(); http.Dispose();
     }
 }

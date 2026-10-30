@@ -17,14 +17,15 @@ public sealed partial class TietiezhiPlugin
     }
     public Task SaveProfileSettingsAsync(string profileId, IReadOnlyDictionary<string, string> values, string? apiKey, CancellationToken cancellationToken) => Locked(async ct => {
         RequireProfile(profileId);
-        if (values.Keys.Any(k => k is not "selected-model" and not "thinking")) throw new ArgumentException("未知设置。");
+        if (values.Keys.Any(k => k is not "selected-model" and not "thinking" && !IsLoginSetting(k))) throw new ArgumentException("未知设置。");
         string nextModel = values.GetValueOrDefault("selected-model", selected);
         string nextEffort = values.GetValueOrDefault("thinking", effort);
         if (models.Count > 0 && !models.Any(m => m.Id == nextModel)) throw new ArgumentException("请先选择有效模型。");
         if (!Efforts(nextModel).Contains(nextEffort)) throw new ArgumentException("当前模型不支持这个思考等级。");
         var normalized = apiKey?.Trim();
         if (normalized != null && (normalized.Length > 4096 || normalized.Any(char.IsControl))) throw new ArgumentException("API Key 格式无效。");
-        // Validate all drafts first. Login and updates never call this save method.
+        // Validate all drafts first. OAuth fields remain in memory, never in settings.
+        RememberLoginDraft(values);
         if (normalized != null)
         {
             if (normalized.Length == 0) await host!.DeleteSecretAsync("mimo-api-key");
@@ -40,13 +41,13 @@ public sealed partial class TietiezhiPlugin
         IReadOnlyDictionary<string, string> values, string? apiKey, CancellationToken cancellationToken) => Locked(async ct => {
         RequireProfile(profileId);
         // Do not persist pending MiMo keys/model/reasoning edits just to sign in or update.
-        var message = await RunActionSafely(actionId, ct) ?? "完成。";
+        var message = await RunActionSafely(actionId, ct, values) ?? "完成。";
         if (apiKey != null) message += " MiMo 密钥草稿尚未保存，请点击保存设置。";
         return new PluginProfileActionResult(message);
     }, cancellationToken);
-    private async Task<string?> RunActionSafely(string id, CancellationToken ct)
+    private async Task<string?> RunActionSafely(string id, CancellationToken ct, IReadOnlyDictionary<string, string>? values = null)
     {
-        try { return await RunAction(id, ct); }
+        try { return await RunAction(id, ct, values); }
         catch (OperationCanceledException) { throw; }
         catch (ApiException e) { return e.Message; }
         catch (SocketException e) { return $"无法监听登录回调端口 36742（错误码 {e.ErrorCode}）。请关闭另一个登录窗口或占用端口的软件后重试。"; }

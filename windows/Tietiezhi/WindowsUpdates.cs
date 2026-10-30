@@ -14,7 +14,7 @@ internal sealed class WindowsUpdates(HttpClient http)
         {
             if (!Trusted(uri)) throw new InvalidDataException("更新下载跳转到不受信任的地址，已停止。");
             using var request = new HttpRequestMessage(HttpMethod.Get, uri);
-            request.Headers.UserAgent.ParseAdd("tietiezhi-windows-updater/0.1.2");
+            request.Headers.UserAgent.ParseAdd("tietiezhi-windows-updater/0.1.3");
             // This transport never attaches MiMo/Google credentials to GitHub.
             using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
             if (response.StatusCode is HttpStatusCode.MovedPermanently or HttpStatusCode.Redirect or HttpStatusCode.SeeOther or HttpStatusCode.TemporaryRedirect or HttpStatusCode.PermanentRedirect)

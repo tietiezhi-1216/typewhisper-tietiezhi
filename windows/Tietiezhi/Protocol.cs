@@ -37,6 +37,9 @@ internal static class Protocol
     }
     public static string Callback(Uri uri, string expectedState)
     {
+        if (!uri.IsAbsoluteUri || uri.Scheme != "http" || uri.Port != 36742 ||
+            uri.Host is not ("localhost" or "127.0.0.1") || uri.UserInfo.Length != 0 || uri.Fragment.Length != 0)
+            throw new InvalidOperationException("请使用本次登录最终返回的 http://localhost:36742/oauth-callback 回调链接。");
         var fields = uri.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries)
             .Select(p => p.Split('=', 2)).Select(p => (Key: Uri.UnescapeDataString(p[0]), Value: p.Length == 2 ? Uri.UnescapeDataString(p[1].Replace('+', ' ')) : "")).ToList();
         if (uri.AbsolutePath != "/oauth-callback" || fields.Count(p => p.Key == "state") != 1 || fields.Single(p => p.Key == "state").Value != expectedState)
